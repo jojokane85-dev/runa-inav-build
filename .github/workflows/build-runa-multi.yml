@@ -1,0 +1,75 @@
+name: Build RUNA Multi-Target INAV
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - SPEEDYBEEF405WING
+          - SKYSTARSF405WING
+          - JHEMCUF405WING
+          - MATEKF405
+          - MATEKF405TE
+          - MATEKF405SE
+
+    steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update -y -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends \
+            git \
+            build-essential \
+            ruby \
+            cmake \
+            make \
+            gcc-arm-none-eabi \
+            binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            python3
+
+      - name: Clone INAV
+        run: |
+          git clone --branch 7.1.2 --depth 1 https://github.com/iNavFlight/inav.git
+
+      - name: Configure CMake
+        run: |
+          cd inav
+          mkdir build
+          cd build
+          cmake ..
+
+      - name: Check target exists
+        run: |
+          cd inav/build
+          echo "Checking target: ${{ matrix.target }}"
+          make help | grep -w "${{ matrix.target }}" || {
+            echo "Target not found: ${{ matrix.target }}"
+            echo "Similar targets:"
+            make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE" || true
+            exit 1
+          }
+
+      - name: Build target
+        run: |
+          cd inav/build
+          make ${{ matrix.target }} -j$(nproc)
+
+      - name: Collect firmware
+        run: |
+          mkdir -p out/${{ matrix.target }}
+          find inav/build -type f \( -name "${{ matrix.target }}*.hex" -o -name "${{ matrix.target }}*.bin" \) -exec cp {} out/${{ matrix.target }}/ \;
+          echo "Collected files:"
+          find out -type f -print
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: RUNA-${{ matrix.target }}
+          path: out/${{ matrix.target }}/*
