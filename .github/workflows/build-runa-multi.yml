@@ -122,24 +122,41 @@ jobs:
           pattern = r'osdDrawNextElement\(\);\s*displayHeartbeat\(osdDisplayPort\);\s*displayCommitTransaction\(osdDisplayPort\);'
 
           replacement = r'''
-                  if (currentLayout == 2) {
-                      displayClearScreen(osdDisplayPort);
+                  static bool runaShutterWasActive = false;
+                  static uint8_t runaShutterNextRow = 0;
 
+                  if (currentLayout == 2) {
                       textAttributes_t runaAttr = TEXT_ATTRIBUTES_NONE;
                       TEXT_ATTRIBUTES_ADD_SOLID_BG(runaAttr);
 
                       char runaMask[64];
 
-                      const uint8_t cols = osdDisplayPort->cols > 63 ? 63 : osdDisplayPort->cols;
-                      const uint8_t rows = osdDisplayPort->rows;
+                      uint8_t cols = osdDisplayPort->cols;
+                      uint8_t rows = osdDisplayPort->rows;
 
+                      if (cols > 63) {
+                          cols = 63;
+                      }
+
+                      // RUNA shutter window.
+                      // For MAX7456 30x16 this gives about 10x4 cells.
                       const uint8_t windowWidth = cols >= 30 ? 10 : cols / 3;
                       const uint8_t windowHeight = rows >= 16 ? 4 : rows / 3;
 
                       const uint8_t windowX = (cols - windowWidth) / 2;
                       const uint8_t windowY = (rows - windowHeight) / 2;
 
-                      for (uint8_t y = 0; y < rows; y++) {
+                      // Clear screen only once when entering shutter mode.
+                      if (!runaShutterWasActive) {
+                          displayClearScreen(osdDisplayPort);
+                          runaShutterWasActive = true;
+                          runaShutterNextRow = 0;
+                      }
+
+                      // Draw 2 rows per OSD cycle so MAX7456 can process it.
+                      for (uint8_t pass = 0; pass < 2; pass++) {
+                          uint8_t y = runaShutterNextRow;
+
                           const bool inWindowY = (y >= windowY) && (y < windowY + windowHeight);
 
                           if (!inWindowY) {
@@ -147,12 +164,14 @@ jobs:
                               runaMask[cols] = '\0';
                               displayWriteWithAttr(osdDisplayPort, 0, y, runaMask, runaAttr);
                           } else {
+                              // Left shutter area
                               if (windowX > 0) {
                                   memset(runaMask, ' ', windowX);
                                   runaMask[windowX] = '\0';
                                   displayWriteWithAttr(osdDisplayPort, 0, y, runaMask, runaAttr);
                               }
 
+                              // Right shutter area
                               const uint8_t rightX = windowX + windowWidth;
                               if (rightX < cols) {
                                   const uint8_t rightWidth = cols - rightX;
@@ -161,8 +180,21 @@ jobs:
                                   displayWriteWithAttr(osdDisplayPort, rightX, y, runaMask, runaAttr);
                               }
                           }
+
+                          runaShutterNextRow++;
+
+                          if (runaShutterNextRow >= rows) {
+                              runaShutterNextRow = 0;
+                          }
                       }
                   } else {
+                      // Clear old shutter when leaving Layout 2.
+                      if (runaShutterWasActive) {
+                          displayClearScreen(osdDisplayPort);
+                          runaShutterWasActive = false;
+                          runaShutterNextRow = 0;
+                      }
+
                       osdDrawNextElement();
                   }
 
@@ -176,7 +208,7 @@ jobs:
               raise SystemExit(1)
 
           path.write_text(new_text, encoding="utf-8")
-          print("Patched RUNA OSD shutter: Layout 2 = black shutter with center window")
+          print("Patched RUNA OSD shutter v2: Layout 2 = full shutter with center window")
           PY
 
       - name: Configure CMake
