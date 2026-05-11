@@ -43,7 +43,7 @@ jobs:
         run: |
           cd inav/build
           echo "===== AVAILABLE TARGETS ====="
-          make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE|CADDX|CADD" || true
+          make help | grep -i -E "F405|WING|SPEEDY|MATEK|JHE|CADDX|CADD" || true
 
   build:
     runs-on: ubuntu-22.04
@@ -54,7 +54,6 @@ jobs:
       matrix:
         target:
           - SPEEDYBEEF405WING
-          - SKYSTARSF405WING
           - JHEMCUF405WING
           - MATEKF405
           - MATEKF405TE
@@ -98,7 +97,7 @@ jobs:
           make help | grep -w "${{ matrix.target }}" || {
             echo "TARGET NOT FOUND: ${{ matrix.target }}"
             echo "Similar targets:"
-            make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE|CADDX|CADD" || true
+            make help | grep -i -E "F405|WING|SPEEDY|MATEK|JHE|CADDX|CADD" || true
             exit 1
           }
 
