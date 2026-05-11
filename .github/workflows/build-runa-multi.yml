@@ -83,6 +83,32 @@ jobs:
         run: |
           git clone --branch 7.1.2 --depth 1 https://github.com/iNavFlight/inav.git
 
+      - name: Patch RUNA name in Configurator
+        run: |
+          cd inav
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("src/main/fc/fc_msp.c")
+          text = path.read_text(encoding="utf-8")
+
+          pattern = r'sbufWriteU8\(dst,\s*strlen\(targetName\)\);\s*sbufWriteData\(dst,\s*targetName,\s*strlen\(targetName\)\);'
+
+          replacement = '''sbufWriteU8(dst, strlen(targetName) + 5);
+                  sbufWriteData(dst, targetName, strlen(targetName));
+                  sbufWriteData(dst, "+RUNA", 5);'''
+
+          new_text, count = re.subn(pattern, replacement, text, count=1)
+
+          if count != 1:
+              print("ERROR: Could not patch MSP_BOARD_INFO targetName block")
+              raise SystemExit(1)
+
+          path.write_text(new_text, encoding="utf-8")
+          print("Patched targetName -> targetName+RUNA in MSP_BOARD_INFO")
+          PY
+
       - name: Configure CMake
         run: |
           cd inav
@@ -113,14 +139,43 @@ jobs:
           echo "===== BUILT FILES ====="
           find inav/build -type f \( -name "*.hex" -o -name "*.bin" -o -name "*.elf" \) -print || true
 
-      - name: Collect firmware
+      - name: Collect and rename firmware
         if: success()
         run: |
           mkdir -p out/${{ matrix.target }}
 
-          find inav/build -type f -name "${{ matrix.target }}*.hex" -exec cp {} out/${{ matrix.target }}/ \; || true
-          find inav/build -type f -name "${{ matrix.target }}*.bin" -exec cp {} out/${{ matrix.target }}/ \; || true
-          find inav/build -type f -name "${{ matrix.target }}*.elf" -exec cp {} out/${{ matrix.target }}/ \; || true
+          python3 <<'PY'
+          from pathlib import Path
+          import shutil
+
+          target = "${{ matrix.target }}"
+          build_dir = Path("inav/build")
+          out_dir = Path("out") / target
+          out_dir.mkdir(parents=True, exist_ok=True)
+
+          exts = {".hex", ".bin", ".elf"}
+          copied = 0
+
+          for file in build_dir.rglob("*"):
+              if not file.is_file():
+                  continue
+              if file.suffix.lower() not in exts:
+                  continue
+              if target not in file.name:
+                  continue
+
+              new_name = f"RUNA_{file.name}"
+              dst = out_dir / new_name
+              shutil.copy2(file, dst)
+              print(f"Copied: {file} -> {dst}")
+              copied += 1
+
+          if copied == 0:
+              print("ERROR: no firmware files found for target", target)
+              raise SystemExit(1)
+
+          print(f"Total copied: {copied}")
+          PY
 
           echo "Collected files:"
           find out -type f -print || true
