@@ -116,97 +116,96 @@ jobs:
           from pathlib import Path
           import re
 
-          def must_replace(text, old, new, name):
-              if old not in text:
-                  print(f"ERROR: not found: {name}")
+          def sub_required(text, pattern, replacement, name, flags=0):
+              new_text, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  print(f"ERROR: could not replace: {name}")
+                  print("PATTERN:", pattern)
                   raise SystemExit(1)
-              return text.replace(old, new, 1)
+              return new_text
 
           # =========================
-          # PATCH vtx_string.c
+          # vtx_string.c
           # FREQUENCYGROUP_1G3 -> RUNA 3.3GHz table
           # =========================
 
           path = Path("src/main/io/vtx_string.c")
           text = path.read_text(encoding="utf-8")
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_STRING_1G3_BAND_COUNT 2",
+              r"#define\s+VTX_STRING_1G3_BAND_COUNT\s+\d+",
               "#define VTX_STRING_1G3_BAND_COUNT 6",
               "VTX_STRING_1G3_BAND_COUNT"
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_STRING_1G3_POWER_COUNT 3",
+              r"#define\s+VTX_STRING_1G3_POWER_COUNT\s+\d+",
               "#define VTX_STRING_1G3_POWER_COUNT 5",
               "VTX_STRING_1G3_POWER_COUNT"
           )
 
-          freq_pattern = r'const uint16_t vtx1G3frequencyTable\[VTX_STRING_1G3_BAND_COUNT\]\[VTX_STRING_1G3_CHAN_COUNT\] = \{.*?\};'
-          freq_replacement = '''const uint16_t vtx1G3frequencyTable[VTX_STRING_1G3_BAND_COUNT][VTX_STRING_1G3_CHAN_COUNT] = {
+          text = sub_required(
+              text,
+              r"const\s+uint16_t\s+vtx1G3frequencyTable\s*\[\s*VTX_STRING_1G3_BAND_COUNT\s*\]\s*\[\s*VTX_STRING_1G3_CHAN_COUNT\s*\]\s*=\s*\{.*?\};",
+              """const uint16_t vtx1G3frequencyTable[VTX_STRING_1G3_BAND_COUNT][VTX_STRING_1G3_CHAN_COUNT] = {
               { 3083, 3114, 3145, 3176, 3207, 3238, 3269, 3300 }, // RUNA 3.3 BAND_A
               { 3215, 3235, 3255, 3275, 3295, 3315, 3335, 3355 }, // RUNA 3.3 BAND_B
               { 3170, 3190, 3210, 3230, 3250, 3270, 3290, 3310 }, // RUNA 3.3 BAND_C
               { 3320, 3345, 3370, 3395, 3420, 3445, 3470, 3495 }, // RUNA 3.3 BAND_D
               { 3310, 3330, 3355, 3380, 3405, 3430, 3455, 3480 }, // RUNA 3.3 BAND_E
               { 3330, 3350, 3370, 3390, 3410, 3430, 3450, 3470 }, // RUNA 3.3 BAND_F
-          };'''
-
-          text, count = re.subn(freq_pattern, freq_replacement, text, flags=re.S)
-          if count != 1:
-              print("ERROR: could not replace vtx1G3frequencyTable")
-              raise SystemExit(1)
-
-          band_names_pattern = r'const char \* const vtx1G3BandNames\[VTX_STRING_1G3_BAND_COUNT \+ 1\] = \{.*?\};'
-          band_names_replacement = '''const char * const vtx1G3BandNames[VTX_STRING_1G3_BAND_COUNT + 1] = {
-              "-", "A", "B", "C", "D", "E", "F",
-          };'''
-
-          text, count = re.subn(band_names_pattern, band_names_replacement, text, flags=re.S)
-          if count != 1:
-              print("ERROR: could not replace vtx1G3BandNames")
-              raise SystemExit(1)
-
-          text, count = re.subn(
-              r'const char vtx1G3BandLetter\[VTX_STRING_1G3_BAND_COUNT \+ 1\] = ".*?";',
-              'const char vtx1G3BandLetter[VTX_STRING_1G3_BAND_COUNT + 1] = "-ABCDEF";',
-              text,
+          };""",
+              "vtx1G3frequencyTable",
               flags=re.S
           )
-          if count != 1:
-              print("ERROR: could not replace vtx1G3BandLetter")
-              raise SystemExit(1)
 
-          power_names_pattern = r'const char \* const vtx1G3DefaultPowerNames\[VTX_STRING_1G3_POWER_COUNT \+ 1\] = \{.*?\};'
-          power_names_replacement = '''const char * const vtx1G3DefaultPowerNames[VTX_STRING_1G3_POWER_COUNT + 1] = {
+          text = sub_required(
+              text,
+              r"const\s+char\s*\*\s+const\s+vtx1G3BandNames\s*\[\s*VTX_STRING_1G3_BAND_COUNT\s*\+\s*1\s*\]\s*=\s*\{.*?\};",
+              """const char * const vtx1G3BandNames[VTX_STRING_1G3_BAND_COUNT + 1] = {
+              "-", "A", "B", "C", "D", "E", "F",
+          };""",
+              "vtx1G3BandNames",
+              flags=re.S
+          )
+
+          text = sub_required(
+              text,
+              r'const\s+char\s+vtx1G3BandLetter\s*\[\s*VTX_STRING_1G3_BAND_COUNT\s*\+\s*1\s*\]\s*=\s*".*?";',
+              'const char vtx1G3BandLetter[VTX_STRING_1G3_BAND_COUNT + 1] = "-ABCDEF";',
+              "vtx1G3BandLetter",
+              flags=re.S
+          )
+
+          text = sub_required(
+              text,
+              r"const\s+char\s*\*\s+const\s+vtx1G3DefaultPowerNames\s*\[\s*VTX_STRING_1G3_POWER_COUNT\s*\+\s*1\s*\]\s*=\s*\{.*?\};",
+              """const char * const vtx1G3DefaultPowerNames[VTX_STRING_1G3_POWER_COUNT + 1] = {
               "---", "25", "200", "400", "800", "MAX"
-          };'''
-
-          text, count = re.subn(power_names_pattern, power_names_replacement, text, flags=re.S)
-          if count != 1:
-              print("ERROR: could not replace vtx1G3DefaultPowerNames")
-              raise SystemExit(1)
+          };""",
+              "vtx1G3DefaultPowerNames",
+              flags=re.S
+          )
 
           path.write_text(text, encoding="utf-8")
           print("Patched vtx_string.c: FREQUENCYGROUP_1G3 is now RUNA 3.3GHz")
 
           # =========================
-          # PATCH vtx_string.h
+          # vtx_string.h
           # =========================
 
           path = Path("src/main/io/vtx_string.h")
           text = path.read_text(encoding="utf-8")
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "extern const uint16_t vtx1G3frequencyTable[2][8];",
+              r"extern\s+const\s+uint16_t\s+vtx1G3frequencyTable\s*\[\s*\d+\s*\]\s*\[\s*8\s*\]\s*;",
               "extern const uint16_t vtx1G3frequencyTable[6][8];",
               "vtx1G3frequencyTable extern"
           )
 
-          # Fix header typo if present
           text = text.replace(
               "extern const char vtx51G3BandLetter[];",
               "extern const char vtx1G3BandLetter[];"
@@ -216,37 +215,37 @@ jobs:
           print("Patched vtx_string.h")
 
           # =========================
-          # PATCH vtx_tramp.h
+          # vtx_tramp.h
           # Expand 1G3 limits to RUNA 3.3GHz range
           # =========================
 
           path = Path("src/main/io/vtx_tramp.h")
           text = path.read_text(encoding="utf-8")
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_TRAMP_1G3_BAND_COUNT 2",
+              r"#define\s+VTX_TRAMP_1G3_BAND_COUNT\s+\d+",
               "#define VTX_TRAMP_1G3_BAND_COUNT 6",
               "VTX_TRAMP_1G3_BAND_COUNT"
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_TRAMP_1G3_MAX_POWER_COUNT 3",
+              r"#define\s+VTX_TRAMP_1G3_MAX_POWER_COUNT\s+\d+",
               "#define VTX_TRAMP_1G3_MAX_POWER_COUNT 5",
               "VTX_TRAMP_1G3_MAX_POWER_COUNT"
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ 1000",
+              r"#define\s+VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ\s+\d+",
               "#define VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ 3000",
               "VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ"
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "#define VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ 1399",
+              r"#define\s+VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ\s+\d+",
               "#define VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ 3599",
               "VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ"
           )
@@ -255,39 +254,43 @@ jobs:
           print("Patched vtx_tramp.h: 1G3 limits -> 3.3GHz")
 
           # =========================
-          # PATCH vtx_tramp.c
-          # 3.3 power table
+          # vtx_tramp.c
+          # RUNA 3.3 power table
           # =========================
 
           path = Path("src/main/io/vtx_tramp.c")
           text = path.read_text(encoding="utf-8")
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "const uint16_t trampPowerTable_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 800 };",
+              r"const\s+uint16_t\s+trampPowerTable_1G3_800\s*\[\s*VTX_TRAMP_1G3_MAX_POWER_COUNT\s*\]\s*=\s*\{.*?\};",
               "const uint16_t trampPowerTable_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 400, 800, 800 };",
-              "trampPowerTable_1G3_800"
+              "trampPowerTable_1G3_800",
+              flags=re.S
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              'const char * const trampPowerNames_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "800" };',
+              r"const\s+char\s*\*\s+const\s+trampPowerNames_1G3_800\s*\[\s*VTX_TRAMP_1G3_MAX_POWER_COUNT\s*\+\s*1\s*\]\s*=\s*\{.*?\};",
               'const char * const trampPowerNames_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "400", "800", "800" };',
-              "trampPowerNames_1G3_800"
+              "trampPowerNames_1G3_800",
+              flags=re.S
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              "const uint16_t trampPowerTable_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 2000 };",
+              r"const\s+uint16_t\s+trampPowerTable_1G3_2000\s*\[\s*VTX_TRAMP_1G3_MAX_POWER_COUNT\s*\]\s*=\s*\{.*?\};",
               "const uint16_t trampPowerTable_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 400, 800, 2000 };",
-              "trampPowerTable_1G3_2000"
+              "trampPowerTable_1G3_2000",
+              flags=re.S
           )
 
-          text = must_replace(
+          text = sub_required(
               text,
-              'const char * const trampPowerNames_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "2000" };',
+              r"const\s+char\s*\*\s+const\s+trampPowerNames_1G3_2000\s*\[\s*VTX_TRAMP_1G3_MAX_POWER_COUNT\s*\+\s*1\s*\]\s*=\s*\{.*?\};",
               'const char * const trampPowerNames_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "400", "800", "2000" };',
-              "trampPowerNames_1G3_2000"
+              "trampPowerNames_1G3_2000",
+              flags=re.S
           )
 
           path.write_text(text, encoding="utf-8")
@@ -323,22 +326,18 @@ jobs:
                           cols = 63;
                       }
 
-                      // RUNA shutter window.
-                      // For MAX7456 30x16 this gives about 10x4 cells.
                       const uint8_t windowWidth = cols >= 30 ? 10 : cols / 3;
                       const uint8_t windowHeight = rows >= 16 ? 4 : rows / 3;
 
                       const uint8_t windowX = (cols - windowWidth) / 2;
                       const uint8_t windowY = (rows - windowHeight) / 2;
 
-                      // Clear screen only once when entering shutter mode.
                       if (!runaShutterWasActive) {
                           displayClearScreen(osdDisplayPort);
                           runaShutterWasActive = true;
                           runaShutterNextRow = 0;
                       }
 
-                      // Draw 2 rows per OSD cycle so MAX7456 can process it.
                       for (uint8_t pass = 0; pass < 2; pass++) {
                           uint8_t y = runaShutterNextRow;
 
@@ -349,14 +348,12 @@ jobs:
                               runaMask[cols] = '\0';
                               displayWriteWithAttr(osdDisplayPort, 0, y, runaMask, runaAttr);
                           } else {
-                              // Left shutter area
                               if (windowX > 0) {
                                   memset(runaMask, ' ', windowX);
                                   runaMask[windowX] = '\0';
                                   displayWriteWithAttr(osdDisplayPort, 0, y, runaMask, runaAttr);
                               }
 
-                              // Right shutter area
                               const uint8_t rightX = windowX + windowWidth;
                               if (rightX < cols) {
                                   const uint8_t rightWidth = cols - rightX;
@@ -373,7 +370,6 @@ jobs:
                           }
                       }
                   } else {
-                      // Clear old shutter when leaving Layout 2.
                       if (runaShutterWasActive) {
                           displayClearScreen(osdDisplayPort);
                           runaShutterWasActive = false;
