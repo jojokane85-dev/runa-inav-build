@@ -109,6 +109,107 @@ jobs:
           print("Patched targetName -> targetName+RUNA in MSP_BOARD_INFO")
           PY
 
+      - name: Patch RUNA OSD shutter
+        run: |
+          cd inav
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("src/main/io/osd.c")
+          text = path.read_text(encoding="utf-8")
+
+          helper = r'''
+          // RUNA CUSTOM OSD SHUTTER
+          // Active only on OSD Layout 2.
+          // It draws inverted spaces outside a small center window.
+          // Center window remains clear so the pilot can see video through it.
+          static void runaFillOsdSegment(uint8_t x, uint8_t y, uint8_t width, textAttributes_t attr)
+          {
+              if (width == 0) {
+                  return;
+              }
+
+              char buffer[80];
+
+              if (width >= sizeof(buffer)) {
+                  width = sizeof(buffer) - 1;
+              }
+
+              memset(buffer, ' ', width);
+              buffer[width] = '\0';
+
+              displayWriteWithAttr(osdDisplayPort, x, y, buffer, attr);
+          }
+
+          static void osdDrawRunaShutter(void)
+          {
+              if (!osdDisplayPort) {
+                  return;
+              }
+
+              const uint8_t cols = osdDisplayPort->cols;
+              const uint8_t rows = osdDisplayPort->rows;
+
+              if (cols < 8 || rows < 6) {
+                  return;
+              }
+
+              // Small center window.
+              // For analog MAX7456 30x16 this gives about 10x4 cells.
+              const uint8_t windowWidth = cols >= 30 ? 10 : cols / 3;
+              const uint8_t windowHeight = rows >= 16 ? 4 : rows / 3;
+
+              const uint8_t windowX = (cols - windowWidth) / 2;
+              const uint8_t windowY = (rows - windowHeight) / 2;
+
+              textAttributes_t shutterAttr = TEXT_ATTRIBUTES_NONE;
+              TEXT_ATTRIBUTES_ADD_INVERTED(shutterAttr);
+
+              for (uint8_t y = 0; y < rows; y++) {
+                  const bool inWindowY = (y >= windowY) && (y < windowY + windowHeight);
+
+                  if (!inWindowY) {
+                      runaFillOsdSegment(0, y, cols, shutterAttr);
+                  } else {
+                      runaFillOsdSegment(0, y, windowX, shutterAttr);
+                      runaFillOsdSegment(windowX + windowWidth, y, cols - (windowX + windowWidth), shutterAttr);
+                  }
+              }
+          }
+
+          '''
+
+          marker = "static void osdRefresh(timeUs_t currentTimeUs) {"
+          if helper.strip() not in text:
+              if marker not in text:
+                  print("ERROR: osdRefresh marker not found")
+                  raise SystemExit(1)
+              text = text.replace(marker, helper + "\n" + marker, 1)
+
+          old = '''osdDrawNextElement();
+                  displayHeartbeat(osdDisplayPort);
+                  displayCommitTransaction(osdDisplayPort);'''
+
+          new = '''osdDrawNextElement();
+
+                  if (currentLayout == 2) {
+                      displayClearScreen(osdDisplayPort);
+                      osdDrawRunaShutter();
+                  }
+
+                  displayHeartbeat(osdDisplayPort);
+                  displayCommitTransaction(osdDisplayPort);'''
+
+          if new not in text:
+              if old not in text:
+                  print("ERROR: OSD draw block not found")
+                  raise SystemExit(1)
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+          print("Patched RUNA OSD shutter: Layout 2 = shutter with center window")
+          PY
+
       - name: Configure CMake
         run: |
           cd inav
@@ -164,7 +265,7 @@ jobs:
               if target not in file.name:
                   continue
 
-              new_name = f"RUNA_{file.name}"
+              new_name = f"RUNA_SHUTTER_{file.name}"
               dst = out_dir / new_name
               shutil.copy2(file, dst)
               print(f"Copied: {file} -> {dst}")
@@ -184,5 +285,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA-${{ matrix.target }}
+          name: RUNA-SHUTTER-${{ matrix.target }}
           path: out/${{ matrix.target }}/*
