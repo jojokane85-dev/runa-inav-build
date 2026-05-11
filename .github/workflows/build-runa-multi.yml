@@ -5,8 +5,49 @@ on:
   push:
 
 jobs:
+  list-targets:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update -y -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends \
+            git \
+            build-essential \
+            g++ \
+            ruby \
+            cmake \
+            make \
+            gcc-arm-none-eabi \
+            binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-dev \
+            libstdc++-arm-none-eabi-newlib \
+            ninja-build \
+            python3 \
+            python3-pip
+
+      - name: Clone INAV
+        run: |
+          git clone --branch 7.1.2 --depth 1 https://github.com/iNavFlight/inav.git
+
+      - name: Configure CMake
+        run: |
+          cd inav
+          mkdir -p build
+          cd build
+          cmake ..
+
+      - name: Show available F405/WING targets
+        run: |
+          cd inav/build
+          echo "===== AVAILABLE TARGETS ====="
+          make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE|CADDX|CADD" || true
+
   build:
     runs-on: ubuntu-22.04
+    needs: list-targets
 
     strategy:
       fail-fast: false
@@ -26,13 +67,18 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             git \
             build-essential \
+            g++ \
             ruby \
             cmake \
             make \
             gcc-arm-none-eabi \
             binutils-arm-none-eabi \
             libnewlib-arm-none-eabi \
-            python3
+            libstdc++-arm-none-eabi-dev \
+            libstdc++-arm-none-eabi-newlib \
+            ninja-build \
+            python3 \
+            python3-pip
 
       - name: Clone INAV
         run: |
@@ -41,7 +87,7 @@ jobs:
       - name: Configure CMake
         run: |
           cd inav
-          mkdir build
+          mkdir -p build
           cd build
           cmake ..
 
@@ -50,25 +96,38 @@ jobs:
           cd inav/build
           echo "Checking target: ${{ matrix.target }}"
           make help | grep -w "${{ matrix.target }}" || {
-            echo "Target not found: ${{ matrix.target }}"
+            echo "TARGET NOT FOUND: ${{ matrix.target }}"
             echo "Similar targets:"
-            make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE" || true
+            make help | grep -i -E "F405|WING|SPEEDY|MATEK|SKYSTARS|JHE|CADDX|CADD" || true
             exit 1
           }
 
       - name: Build target
         run: |
           cd inav/build
-          make ${{ matrix.target }} -j$(nproc)
+          make clean_${{ matrix.target }} || true
+          make ${{ matrix.target }} -j2 VERBOSE=1
+
+      - name: Find firmware
+        if: always()
+        run: |
+          echo "===== BUILT FILES ====="
+          find inav/build -type f \( -name "*.hex" -o -name "*.bin" -o -name "*.elf" \) -print || true
 
       - name: Collect firmware
+        if: success()
         run: |
           mkdir -p out/${{ matrix.target }}
-          find inav/build -type f \( -name "${{ matrix.target }}*.hex" -o -name "${{ matrix.target }}*.bin" \) -exec cp {} out/${{ matrix.target }}/ \;
+
+          find inav/build -type f -name "${{ matrix.target }}*.hex" -exec cp {} out/${{ matrix.target }}/ \; || true
+          find inav/build -type f -name "${{ matrix.target }}*.bin" -exec cp {} out/${{ matrix.target }}/ \; || true
+          find inav/build -type f -name "${{ matrix.target }}*.elf" -exec cp {} out/${{ matrix.target }}/ \; || true
+
           echo "Collected files:"
-          find out -type f -print
+          find out -type f -print || true
 
       - name: Upload firmware
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RUNA-${{ matrix.target }}
