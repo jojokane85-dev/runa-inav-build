@@ -109,6 +109,191 @@ jobs:
           print("Patched targetName -> targetName+RUNA in MSP_BOARD_INFO")
           PY
 
+      - name: Patch RUNA 3.3GHz VTX table
+        run: |
+          cd inav
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def must_replace(text, old, new, name):
+              if old not in text:
+                  print(f"ERROR: not found: {name}")
+                  raise SystemExit(1)
+              return text.replace(old, new, 1)
+
+          # =========================
+          # PATCH vtx_string.c
+          # FREQUENCYGROUP_1G3 -> RUNA 3.3GHz table
+          # =========================
+
+          path = Path("src/main/io/vtx_string.c")
+          text = path.read_text(encoding="utf-8")
+
+          text = must_replace(
+              text,
+              "#define VTX_STRING_1G3_BAND_COUNT 2",
+              "#define VTX_STRING_1G3_BAND_COUNT 6",
+              "VTX_STRING_1G3_BAND_COUNT"
+          )
+
+          text = must_replace(
+              text,
+              "#define VTX_STRING_1G3_POWER_COUNT 3",
+              "#define VTX_STRING_1G3_POWER_COUNT 5",
+              "VTX_STRING_1G3_POWER_COUNT"
+          )
+
+          freq_pattern = r'const uint16_t vtx1G3frequencyTable\[VTX_STRING_1G3_BAND_COUNT\]\[VTX_STRING_1G3_CHAN_COUNT\] = \{.*?\};'
+          freq_replacement = '''const uint16_t vtx1G3frequencyTable[VTX_STRING_1G3_BAND_COUNT][VTX_STRING_1G3_CHAN_COUNT] = {
+              { 3083, 3114, 3145, 3176, 3207, 3238, 3269, 3300 }, // RUNA 3.3 BAND_A
+              { 3215, 3235, 3255, 3275, 3295, 3315, 3335, 3355 }, // RUNA 3.3 BAND_B
+              { 3170, 3190, 3210, 3230, 3250, 3270, 3290, 3310 }, // RUNA 3.3 BAND_C
+              { 3320, 3345, 3370, 3395, 3420, 3445, 3470, 3495 }, // RUNA 3.3 BAND_D
+              { 3310, 3330, 3355, 3380, 3405, 3430, 3455, 3480 }, // RUNA 3.3 BAND_E
+              { 3330, 3350, 3370, 3390, 3410, 3430, 3450, 3470 }, // RUNA 3.3 BAND_F
+          };'''
+
+          text, count = re.subn(freq_pattern, freq_replacement, text, flags=re.S)
+          if count != 1:
+              print("ERROR: could not replace vtx1G3frequencyTable")
+              raise SystemExit(1)
+
+          band_names_pattern = r'const char \* const vtx1G3BandNames\[VTX_STRING_1G3_BAND_COUNT \+ 1\] = \{.*?\};'
+          band_names_replacement = '''const char * const vtx1G3BandNames[VTX_STRING_1G3_BAND_COUNT + 1] = {
+              "-", "A", "B", "C", "D", "E", "F",
+          };'''
+
+          text, count = re.subn(band_names_pattern, band_names_replacement, text, flags=re.S)
+          if count != 1:
+              print("ERROR: could not replace vtx1G3BandNames")
+              raise SystemExit(1)
+
+          text, count = re.subn(
+              r'const char vtx1G3BandLetter\[VTX_STRING_1G3_BAND_COUNT \+ 1\] = ".*?";',
+              'const char vtx1G3BandLetter[VTX_STRING_1G3_BAND_COUNT + 1] = "-ABCDEF";',
+              text,
+              flags=re.S
+          )
+          if count != 1:
+              print("ERROR: could not replace vtx1G3BandLetter")
+              raise SystemExit(1)
+
+          power_names_pattern = r'const char \* const vtx1G3DefaultPowerNames\[VTX_STRING_1G3_POWER_COUNT \+ 1\] = \{.*?\};'
+          power_names_replacement = '''const char * const vtx1G3DefaultPowerNames[VTX_STRING_1G3_POWER_COUNT + 1] = {
+              "---", "25", "200", "400", "800", "MAX"
+          };'''
+
+          text, count = re.subn(power_names_pattern, power_names_replacement, text, flags=re.S)
+          if count != 1:
+              print("ERROR: could not replace vtx1G3DefaultPowerNames")
+              raise SystemExit(1)
+
+          path.write_text(text, encoding="utf-8")
+          print("Patched vtx_string.c: FREQUENCYGROUP_1G3 is now RUNA 3.3GHz")
+
+          # =========================
+          # PATCH vtx_string.h
+          # =========================
+
+          path = Path("src/main/io/vtx_string.h")
+          text = path.read_text(encoding="utf-8")
+
+          text = must_replace(
+              text,
+              "extern const uint16_t vtx1G3frequencyTable[2][8];",
+              "extern const uint16_t vtx1G3frequencyTable[6][8];",
+              "vtx1G3frequencyTable extern"
+          )
+
+          # Fix header typo if present
+          text = text.replace(
+              "extern const char vtx51G3BandLetter[];",
+              "extern const char vtx1G3BandLetter[];"
+          )
+
+          path.write_text(text, encoding="utf-8")
+          print("Patched vtx_string.h")
+
+          # =========================
+          # PATCH vtx_tramp.h
+          # Expand 1G3 limits to RUNA 3.3GHz range
+          # =========================
+
+          path = Path("src/main/io/vtx_tramp.h")
+          text = path.read_text(encoding="utf-8")
+
+          text = must_replace(
+              text,
+              "#define VTX_TRAMP_1G3_BAND_COUNT 2",
+              "#define VTX_TRAMP_1G3_BAND_COUNT 6",
+              "VTX_TRAMP_1G3_BAND_COUNT"
+          )
+
+          text = must_replace(
+              text,
+              "#define VTX_TRAMP_1G3_MAX_POWER_COUNT 3",
+              "#define VTX_TRAMP_1G3_MAX_POWER_COUNT 5",
+              "VTX_TRAMP_1G3_MAX_POWER_COUNT"
+          )
+
+          text = must_replace(
+              text,
+              "#define VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ 1000",
+              "#define VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ 3000",
+              "VTX_TRAMP_1G3_MIN_FREQUENCY_MHZ"
+          )
+
+          text = must_replace(
+              text,
+              "#define VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ 1399",
+              "#define VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ 3599",
+              "VTX_TRAMP_1G3_MAX_FREQUENCY_MHZ"
+          )
+
+          path.write_text(text, encoding="utf-8")
+          print("Patched vtx_tramp.h: 1G3 limits -> 3.3GHz")
+
+          # =========================
+          # PATCH vtx_tramp.c
+          # 3.3 power table
+          # =========================
+
+          path = Path("src/main/io/vtx_tramp.c")
+          text = path.read_text(encoding="utf-8")
+
+          text = must_replace(
+              text,
+              "const uint16_t trampPowerTable_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 800 };",
+              "const uint16_t trampPowerTable_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 400, 800, 800 };",
+              "trampPowerTable_1G3_800"
+          )
+
+          text = must_replace(
+              text,
+              'const char * const trampPowerNames_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "800" };',
+              'const char * const trampPowerNames_1G3_800[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "400", "800", "800" };',
+              "trampPowerNames_1G3_800"
+          )
+
+          text = must_replace(
+              text,
+              "const uint16_t trampPowerTable_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 2000 };",
+              "const uint16_t trampPowerTable_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT] = { 25, 200, 400, 800, 2000 };",
+              "trampPowerTable_1G3_2000"
+          )
+
+          text = must_replace(
+              text,
+              'const char * const trampPowerNames_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "2000" };',
+              'const char * const trampPowerNames_1G3_2000[VTX_TRAMP_1G3_MAX_POWER_COUNT + 1] = { "---", "25 ", "200", "400", "800", "2000" };',
+              "trampPowerNames_1G3_2000"
+          )
+
+          path.write_text(text, encoding="utf-8")
+          print("Patched vtx_tramp.c: RUNA 3.3GHz power table")
+          PY
+
       - name: Patch RUNA OSD shutter
         run: |
           cd inav
@@ -266,7 +451,7 @@ jobs:
               if target not in file.name:
                   continue
 
-              new_name = f"RUNA_SHUTTER_{file.name}"
+              new_name = f"RUNA_3G3_SHUTTER_{file.name}"
               dst = out_dir / new_name
               shutil.copy2(file, dst)
               print(f"Copied: {file} -> {dst}")
@@ -286,5 +471,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA-SHUTTER-${{ matrix.target }}
+          name: RUNA-3G3-SHUTTER-${{ matrix.target }}
           path: out/${{ matrix.target }}/*
