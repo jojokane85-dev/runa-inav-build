@@ -1,4 +1,4 @@
-name: Build RUNA FC45 CW0
+name: Build RUNA INAV Source
 
 on:
   workflow_dispatch:
@@ -9,11 +9,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      BASE_TARGET: SPEEDYBEEF405WING
-      TARGET: CADDXF405_WING
       INAV_VERSION: 7.1.2
-
-      # Тест ориентации IMU без FLIP
+      BASE_TARGET: SPEEDYBEEF405WING
+      TARGET: RUNA_FC45
+      DISPLAY_NAME: CADDXF405+RUNA
       IMU_ALIGN: CW0_DEG
 
     steps:
@@ -25,10 +24,9 @@ jobs:
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
             libstdc++-arm-none-eabi-dev ninja-build python3 python3-pip
 
-      - name: Clone INAV 7.1.2
+      - name: Clone INAV source
         run: |
           set -e
-          echo "Cloning INAV ${INAV_VERSION}..."
 
           for i in 1 2 3 4 5; do
             echo "Clone attempt $i"
@@ -40,7 +38,6 @@ jobs:
               --config http.postBuffer=524288000 \
               https://github.com/iNavFlight/inav.git && break
 
-            echo "Clone failed, retrying..."
             rm -rf inav
             sleep 10
           done
@@ -49,18 +46,20 @@ jobs:
           cd inav
           git rev-parse HEAD
 
-      - name: Create CADDXF405_WING target
+      - name: Create RUNA_FC45 target
         run: |
           cd inav
+
           rm -rf src/main/target/${TARGET}
           cp -R src/main/target/${BASE_TARGET} src/main/target/${TARGET}
 
           if [ -f "src/main/target/${TARGET}/CMakeLists.txt" ]; then
             sed -i "s/${BASE_TARGET}/${TARGET}/g" src/main/target/${TARGET}/CMakeLists.txt
-            cat src/main/target/${TARGET}/CMakeLists.txt
           fi
 
-      - name: Patch target to CADDXF405_WING LSM6DXX CW0
+          echo "Created target ${TARGET} from ${BASE_TARGET}"
+
+      - name: Patch RUNA target hardware
         run: |
           cd inav
 
@@ -70,7 +69,7 @@ jobs:
           import re
 
           target = os.environ["TARGET"]
-          imu_align = os.environ.get("IMU_ALIGN", "CW0_DEG")
+          imu_align = os.environ["IMU_ALIGN"]
 
           path = Path(f"src/main/target/{target}/target.h")
           text = path.read_text(encoding="utf-8")
@@ -99,43 +98,39 @@ jobs:
               r'#define\s+BARO_I2C_BUS\s+\S+\s*',
           ]
 
-          for p in remove_patterns:
-              text = re.sub(p, "", text, flags=re.M)
+          for pattern in remove_patterns:
+              text = re.sub(pattern, "", text, flags=re.M)
 
           text += f"""
 
           /*
-           * RUNA CADDXF405_WING FC4.5
-           *
-           * Base target: SPEEDYBEEF405WING
-           * IMU: LSM6DXX on SPI1
-           * CS: PA4
-           * SPI1: PA5 / PA6 / PA7
+           * RUNA FC45 target
+           * Base: SPEEDYBEEF405WING
+           * MCU: STM32F405
+           * IMU: LSM6DXX
            * BARO: SPL06
-           * MAG: QMC5883 / HMC5883
-           *
-           * Axis test:
-           * IMU_LSM6DXX_ALIGN = {imu_align}
+           * MAG: QMC5883/HMC5883
            */
+
           #define USE_IMU_LSM6DXX
           #define LSM6DXX_SPI_BUS BUS_SPI1
           #define LSM6DXX_CS_PIN PA4
           #define IMU_LSM6DXX_ALIGN {imu_align}
 
+          #define USE_BARO_SPL06
+          #define BARO_I2C_BUS BUS_I2C1
+
           #define USE_MAG_QMC5883
           #define USE_MAG_HMC5883
           #define MAG_I2C_BUS BUS_I2C1
-
-          #define USE_BARO_SPL06
-          #define BARO_I2C_BUS BUS_I2C1
           """
 
           path.write_text(text, encoding="utf-8")
-          print("RUNA target.h patched")
-          print("IMU align:", imu_align)
+          print("Patched target.h")
+          print("IMU_ALIGN =", imu_align)
           PY
 
-          grep -n -E "LSM6|QMC|HMC|SPL06|PA4|SPI1|CW" src/main/target/${TARGET}/target.h || true
+          grep -n -E "LSM6|SPL06|QMC|HMC|PA4|SPI1|CW" src/main/target/${TARGET}/target.h || true
 
       - name: Patch LSM6DXX safe detect
         run: |
@@ -145,11 +140,6 @@ jobs:
           from pathlib import Path
 
           path = Path("src/main/drivers/accgyro/accgyro_lsm6dxx.c")
-
-          if not path.exists():
-              print("ERROR: accgyro_lsm6dxx.c not found")
-              raise SystemExit(1)
-
           text = path.read_text(encoding="utf-8")
 
           sig = "static bool lsm6dxxDetect"
@@ -180,14 +170,8 @@ jobs:
 
               busSetSpeed(dev, BUS_SPEED_INITIALIZATION);
               delay(150);
-
               busRead(dev, LSM6DXX_REG_WHO_AM_I, &tmp);
 
-              /*
-               * RUNA FC45 safe LSM6DXX detection.
-               * Accepted IDs:
-               * 0x69 / 0x6A / 0x6B / 0x6C / 0x6D
-               */
               if (tmp == 0x69 || tmp == 0x6A || tmp == 0x6B || tmp == 0x6C || tmp == 0x6D) {
                   lsm6dID = tmp;
                   return true;
@@ -198,55 +182,60 @@ jobs:
 
           text = text[:start] + repl + text[end:]
           path.write_text(text, encoding="utf-8")
-          print("RUNA LSM6DXX safe detect patched")
+          print("Patched LSM6DXX safe detect")
           PY
 
-      - name: Patch RUNA name and startup text
+      - name: Patch RUNA name
         run: |
           cd inav
 
           python3 <<'PY'
           from pathlib import Path
           import re
+          import os
 
-          p = Path("src/main/fc/fc_msp.c")
+          display_name = os.environ["DISPLAY_NAME"]
 
-          if p.exists():
-              text = p.read_text(encoding="utf-8")
+          path = Path("src/main/fc/fc_msp.c")
+          text = path.read_text(encoding="utf-8")
 
-              pat = r'sbufWriteU8\(dst,\s*strlen\(targetName\)\);\s*sbufWriteData\(dst,\s*targetName,\s*strlen\(targetName\)\);'
-              rep = """const char *runaTargetName = "CADDXF405+RUNA";
+          pattern = r'sbufWriteU8\(dst,\s*strlen\(targetName\)\);\s*sbufWriteData\(dst,\s*targetName,\s*strlen\(targetName\)\);'
+
+          replacement = f'''const char *runaTargetName = "{display_name}";
                   sbufWriteU8(dst, strlen(runaTargetName));
-                  sbufWriteData(dst, runaTargetName, strlen(runaTargetName));"""
+                  sbufWriteData(dst, runaTargetName, strlen(runaTargetName));'''
 
-              text, c = re.subn(pat, rep, text, count=1)
-              p.write_text(text, encoding="utf-8")
-              print("MSP name patch count:", c)
+          text, count = re.subn(pattern, replacement, text, count=1)
+          path.write_text(text, encoding="utf-8")
+
+          print("MSP name patch count:", count)
+          PY
+
+      - name: Patch startup OSD text
+        run: |
+          cd inav
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("src/main/io/osd.c")
+          text = path.read_text(encoding="utf-8")
+
+          old = 'tfp_sprintf(string_buffer, "INAV VERSION: %s", FC_VERSION_STRING);'
+          new = 'tfp_sprintf(string_buffer, "version RUNA 1.0");'
+
+          if old in text:
+              text = text.replace(old, new, 1)
+              text = text.replace(
+                  'uint8_t xPos = (osdDisplayPort->cols - 19) / 2;',
+                  'uint8_t xPos = OSD_CENTER_S(string_buffer);',
+                  1
+              )
+              print("Startup text patched")
           else:
-              print("WARNING: fc_msp.c not found")
+              print("WARNING: startup text pattern not found")
 
-          p = Path("src/main/io/osd.c")
-
-          if p.exists():
-              text = p.read_text(encoding="utf-8")
-
-              old = 'tfp_sprintf(string_buffer, "INAV VERSION: %s", FC_VERSION_STRING);'
-              new = 'tfp_sprintf(string_buffer, "version RUNA 1.0");'
-
-              if old in text:
-                  text = text.replace(old, new, 1)
-                  text = text.replace(
-                      'uint8_t xPos = (osdDisplayPort->cols - 19) / 2;',
-                      'uint8_t xPos = OSD_CENTER_S(string_buffer);',
-                      1
-                  )
-                  print("Startup text patched")
-              else:
-                  print("WARNING: startup text pattern not found")
-
-              p.write_text(text, encoding="utf-8")
-          else:
-              print("WARNING: osd.c not found")
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Patch RUNA OSD shutter
@@ -258,11 +247,6 @@ jobs:
           import re
 
           path = Path("src/main/io/osd.c")
-
-          if not path.exists():
-              print("WARNING: osd.c not found, skip OSD shutter")
-              raise SystemExit(0)
-
           text = path.read_text(encoding="utf-8")
 
           pattern = r'osdDrawNextElement\(\);\s*displayHeartbeat\(osdDisplayPort\);\s*displayCommitTransaction\(osdDisplayPort\);'
@@ -341,13 +325,12 @@ jobs:
                   displayHeartbeat(osdDisplayPort);
                   displayCommitTransaction(osdDisplayPort);"""
 
-          new_text, count = re.subn(pattern, replacement, text, count=1)
+          text, count = re.subn(pattern, replacement, text, count=1)
 
           if count != 1:
-              print("WARNING: OSD draw block not found, shutter skipped")
-              raise SystemExit(0)
+              raise SystemExit("OSD draw block not found")
 
-          path.write_text(new_text, encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
           print("RUNA OSD shutter patched")
           PY
 
@@ -421,7 +404,7 @@ jobs:
             echo "Target found: ${TARGET}"
           else
             echo "TARGET NOT FOUND: ${TARGET}"
-            make help | grep -i -E "CADDX|SPEEDYBEE|F405|WING" || true
+            make help | grep -i -E "RUNA|SPEEDYBEE|F405|WING" || true
             exit 1
           fi
 
@@ -441,7 +424,7 @@ jobs:
 
           while IFS= read -r f; do
             base="$(basename "$f")"
-            dst="../../out/RUNA_FC45_CW0_${base}"
+            dst="../../out/RUNA_SOURCE_${base}"
             cp "$f" "$dst"
             echo "Copied: $dst"
             FOUND=$((FOUND + 1))
@@ -453,24 +436,14 @@ jobs:
             exit 1
           fi
 
-          cat > ../../out/RUNA_FC45_PRESET_5G8_CW0.cli <<'EOF'
+          cat > ../../out/RUNA_BASE_SETUP.cli <<'EOF'
           batch start
 
-          feature OSD
-          feature VTX
-          feature TELEMETRY
-          feature CURRENT_METER
-          feature BLACKBOX
-          feature PWM_OUTPUT_ENABLE
-
-          set acc_hardware = LSM6DXX
-          set baro_hardware = SPL06
           set mag_hardware = NONE
 
-          # Physical board arrow points to tail:
           set align_board_roll = 0
           set align_board_pitch = 0
-          set align_board_yaw = 1800
+          set align_board_yaw = 900
 
           set gyro_zero_x = 0
           set gyro_zero_y = 0
@@ -479,17 +452,23 @@ jobs:
           set acczero_x = 0
           set acczero_y = 0
           set acczero_z = 0
+
           set accgain_x = 4096
           set accgain_y = 4096
           set accgain_z = 4096
 
-          set vbat_adc_channel = 1
-          set rssi_adc_channel = 3
-          set current_adc_channel = 2
-          set airspeed_adc_channel = 4
+          save
+          EOF
 
-          set receiver_type = SERIAL
-          set serialrx_provider = CRSF
+          cat > ../../out/RUNA_VTX_5G8.cli <<'EOF'
+          batch start
+
+          feature OSD
+          feature VTX
+          feature TELEMETRY
+          feature CURRENT_METER
+          feature BLACKBOX
+          feature PWM_OUTPUT_ENABLE
 
           set vtx_frequency_group = FREQUENCYGROUP_5G8
           set vtx_band = 1
@@ -501,9 +480,6 @@ jobs:
           set vtx_smartaudio_alternate_softserial_method = ON
           set vtx_smartaudio_stopbits = 2
 
-          # AUX4 / CH8
-          # MID  = RUNA OSD-штора / Layout 2
-          # HIGH = Layout 3
           aux 20 33 3 1300 1700
           aux 21 34 3 1700 2100
 
@@ -515,7 +491,7 @@ jobs:
           save
           EOF
 
-          cat > ../../out/RUNA_FC45_PRESET_3G3_CW0.cli <<'EOF'
+          cat > ../../out/RUNA_VTX_3G3.cli <<'EOF'
           batch start
 
           feature OSD
@@ -524,34 +500,6 @@ jobs:
           feature CURRENT_METER
           feature BLACKBOX
           feature PWM_OUTPUT_ENABLE
-
-          set acc_hardware = LSM6DXX
-          set baro_hardware = SPL06
-          set mag_hardware = NONE
-
-          # Physical board arrow points to tail:
-          set align_board_roll = 0
-          set align_board_pitch = 0
-          set align_board_yaw = 1800
-
-          set gyro_zero_x = 0
-          set gyro_zero_y = 0
-          set gyro_zero_z = 0
-
-          set acczero_x = 0
-          set acczero_y = 0
-          set acczero_z = 0
-          set accgain_x = 4096
-          set accgain_y = 4096
-          set accgain_z = 4096
-
-          set vbat_adc_channel = 1
-          set rssi_adc_channel = 3
-          set current_adc_channel = 2
-          set airspeed_adc_channel = 4
-
-          set receiver_type = SERIAL
-          set serialrx_provider = CRSF
 
           set vtx_frequency_group = FREQUENCYGROUP_1G3
           set vtx_band = 1
@@ -563,9 +511,6 @@ jobs:
           set vtx_smartaudio_alternate_softserial_method = ON
           set vtx_smartaudio_stopbits = 2
 
-          # AUX4 / CH8
-          # MID  = RUNA OSD-штора / Layout 2
-          # HIGH = Layout 3
           aux 20 33 3 1300 1700
           aux 21 34 3 1700 2100
 
@@ -577,72 +522,63 @@ jobs:
           save
           EOF
 
-          cat > ../../out/README_RUNA_FC45_CW0.txt <<'EOF'
-          RUNA FC45 CW0_DEG BUILD
+          cat > ../../out/README_RUNA_SOURCE.txt <<'EOF'
+          RUNA-INAV SOURCE BUILD
 
           Base:
           - INAV 7.1.2
-          - BASE_TARGET: SPEEDYBEEF405WING
-          - NEW TARGET: CADDXF405_WING
+          - base target: SPEEDYBEEF405WING
+          - new target: RUNA_FC45
 
-          IMU test:
-          - IMU_LSM6DXX_ALIGN = CW0_DEG
-          - NO FLIP
+          Hardware:
+          - MCU: STM32F405
+          - IMU: LSM6DXX
+          - IMU align: CW0_DEG
+          - BARO: SPL06
+          - MAG: QMC5883/HMC5883
+          - OSD: MAX7456/AT7456
 
           Added:
           - CADDXF405+RUNA name
           - startup text: version RUNA 1.0
-          - LSM6DXX / SPL06 / QMC5883 target patch
-          - safe LSM6DXX detection
           - RUNA OSD shutter on Layout 2
           - VTX 3.3GHz table in FREQUENCYGROUP_1G3
-          - 5.8GHz and 3.3GHz CLI presets
+          - 5.8GHz and 3.3GHz presets
 
-          IMPORTANT:
-          Test without propeller.
-
-          After flashing:
-          1. Full Chip Erase.
-          2. Open CLI:
+          Flashing:
+          1. Use INAV Configurator 7.x.
+          2. Flash with Full Chip Erase.
+          3. Open CLI:
              defaults
              save
 
-          3. After reboot, do not touch the board for 15 seconds.
+          4. After reboot, do not touch board for 15 seconds.
 
-          4. If board arrow points to tail, paste:
-             set mag_hardware = NONE
-             set align_board_roll = 0
-             set align_board_pitch = 0
-             set align_board_yaw = 1800
-             set gyro_zero_x = 0
-             set gyro_zero_y = 0
-             set gyro_zero_z = 0
-             set acczero_x = 0
-             set acczero_y = 0
-             set acczero_z = 0
-             set accgain_x = 4096
-             set accgain_y = 4096
-             set accgain_z = 4096
-             save
+          5. Paste:
+             RUNA_BASE_SETUP.cli
 
-          5. After reboot, do not touch the board for 15 seconds.
           6. Calibrate accelerometer.
-          7. Check Setup.
 
-          Desired Setup movement:
+          Required check:
+          - GYRO=OK
+          - ACC=OK
+          - BARO=OK
+          - HWFAIL must be absent
+
+          Setup movement:
           - right wing down -> model right wing down
           - left wing down -> model left wing down
           - nose up -> model nose up
           - nose down -> model nose down
-          - model must NOT slowly drift/turn by itself
+          - model must not drift by itself
 
-          If movement is inverted/wrong:
-          - do not fly
-          - try CW180_DEG next
+          If old working dump is applied after this, check:
+             get align_board
 
-          If model still slowly drifts:
-          - do not fly
-          - try CW180_DEG next
+          Correct:
+             align_board_roll = 0
+             align_board_pitch = 0
+             align_board_yaw = 900
           EOF
 
           ls -la ../../out
@@ -651,5 +587,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA-FC45-CW0
+          name: RUNA-INAV-SOURCE
           path: out/*
