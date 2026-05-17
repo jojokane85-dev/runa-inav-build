@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v2
+name: Build RUNA F405 WING v3
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
-          # Берём за основу MATEKF405SE, потому что он F405 WING и уже близок по структуре
+          # Берём за основу MATEKF405SE, потому что он F405 WING и близок по структуре
           cp -r src/main/target/MATEKF405SE/* src/main/target/RUNA_F405_WING/
 
           # CMake target
@@ -30,33 +30,64 @@ jobs:
 
           echo "===== Patch target.h for RUNA ====="
 
-          # Покажем, что было в target.h
           echo "===== ORIGINAL target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|GYRO|ACC|BARO|MAG|OSD|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
 
-          # Чистим старые строки, которые чаще всего мешают
+          # Удаляем старые определения, которые могут конфликтовать
           sed -i '/TARGET_BOARD_IDENTIFIER/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USBD_PRODUCT_STRING/d' src/main/target/RUNA_F405_WING/target.h || true
+
           sed -i '/GYRO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ACC_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/BARO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/MAG_/d' src/main/target/RUNA_F405_WING/target.h || true
+
           sed -i '/USE_BARO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_MAG_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_GYRO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_ACC_/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Добавляем наш блок в конец target.h
+          # В INAV 7.1.2 нельзя вручную указывать USE_GYRO и USE_ACC
+          sed -i '/#define USE_GYRO$/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/#define USE_ACC$/d' src/main/target/RUNA_F405_WING/target.h || true
+
+          # Добавляем наш блок RUNA в конец target.h
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
            * RUNA_F405_WING custom target
            * Based on detected working CADDXF405_WING hardware:
+           *
            * CPU: STM32F405
            * GYRO/ACC: LSM6DXX
            * BARO: SPL06
            * MAG: HMC5883
            * OSD: MAX7456
+           *
+           * Important pins from original CADDXF405_WING:
+           * PA4  = MPU / Gyro CS
+           * PA5  = SPI1 SCK
+           * PA6  = SPI1 MISO
+           * PA7  = SPI1 MOSI
+           * PB7  = MOTOR1
+           * PB6  = MOTOR2
+           * PB0  = SERVO3
+           * PB1  = SERVO4
+           * PC8  = SERVO5
+           * PC9  = SERVO6
+           * PB8  = I2C1 SCL
+           * PB9  = I2C1 SDA
+           * PB12 = OSD CS
+           * PB13 = SPI2 SCK
+           * PC2  = SPI2 MISO
+           * PC3  = SPI2 MOSI
+           * PC14 = SDCARD CS
+           * PC15 = BEEPER
+           * PC13 = PINIO1
+           * PA9  = UART1 TX
+           * PA10 = UART1 RX
+           * PC6  = UART6 TX
+           * PC7  = UART6 RX
            */
 
           #undef TARGET_BOARD_IDENTIFIER
@@ -65,18 +96,21 @@ jobs:
           #undef USBD_PRODUCT_STRING
           #define USBD_PRODUCT_STRING "RUNA_F405_WING"
 
-          /* Gyro / Acc on SPI1 */
+          /*
+           * SPI1 — Gyro / Acc
+           * Do NOT define USE_GYRO or USE_ACC directly in INAV 7.1.2.
+           */
           #define USE_SPI
           #define USE_SPI_DEVICE_1
+
           #define SPI1_NSS_PIN PA4
           #define SPI1_SCK_PIN PA5
           #define SPI1_MISO_PIN PA6
           #define SPI1_MOSI_PIN PA7
 
-          #define USE_GYRO
           #define USE_GYRO_SPI_LSM6DSO
           #define USE_GYRO_SPI_LSM6DSV16X
-          #define USE_ACC
+
           #define USE_ACC_SPI_LSM6DSO
           #define USE_ACC_SPI_LSM6DSV16X
 
@@ -88,38 +122,50 @@ jobs:
           #define ACC_1_SPI_INSTANCE SPI1
           #define ACC_1_ALIGN CW0_DEG
 
-          /* Baro / Mag on I2C1 */
+          /*
+           * I2C1 — Barometer / Magnetometer
+           */
           #define USE_I2C
           #define USE_I2C_DEVICE_1
+
           #define I2C1_SCL PB8
           #define I2C1_SDA PB9
 
-          #define USE_BARO
           #define USE_BARO_SPL06
           #define BARO_I2C_INSTANCE I2CDEV_1
 
-          #define USE_MAG
           #define USE_MAG_HMC5883
           #define MAG_I2C_INSTANCE I2CDEV_1
 
-          /* OSD MAX7456 on SPI2 */
+          /*
+           * SPI2 — OSD MAX7456
+           */
           #define USE_MAX7456
-          #define MAX7456_SPI_INSTANCE SPI2
-          #define MAX7456_SPI_CS_PIN PB12
+
+          #define USE_SPI_DEVICE_2
           #define SPI2_SCK_PIN PB13
           #define SPI2_MISO_PIN PC2
           #define SPI2_MOSI_PIN PC3
 
-          /* SD card on SPI3 */
-          #define USE_SDCARD
-          #define USE_SDCARD_SPI
-          #define SDCARD_SPI_INSTANCE SPI3
-          #define SDCARD_SPI_CS_PIN PC14
+          #define MAX7456_SPI_INSTANCE SPI2
+          #define MAX7456_SPI_CS_PIN PB12
+
+          /*
+           * SPI3 — SD card
+           */
+          #define USE_SPI_DEVICE_3
           #define SPI3_SCK_PIN PB3
           #define SPI3_MISO_PIN PB4
           #define SPI3_MOSI_PIN PB5
 
-          /* UARTs from original CADDXF405_WING resource */
+          #define USE_SDCARD
+          #define USE_SDCARD_SPI
+          #define SDCARD_SPI_INSTANCE SPI3
+          #define SDCARD_SPI_CS_PIN PC14
+
+          /*
+           * UARTs
+           */
           #define USE_UART1
           #define UART1_TX_PIN PA9
           #define UART1_RX_PIN PA10
@@ -128,20 +174,28 @@ jobs:
           #define UART6_TX_PIN PC6
           #define UART6_RX_PIN PC7
 
-          /* Outputs */
+          /*
+           * Outputs
+           */
           #define MOTOR1_PIN PB7
           #define MOTOR2_PIN PB6
+
           #define SERVO3_PIN PB0
           #define SERVO4_PIN PB1
           #define SERVO5_PIN PC8
           #define SERVO6_PIN PC9
 
-          /* ADC */
+          /*
+           * ADC
+           */
           #define VBAT_ADC_PIN PC0
           #define CURRENT_METER_ADC_PIN PC1
 
-          /* Beeper / LED / PINIO */
+          /*
+           * Beeper / LEDs / PINIO
+           */
           #define BEEPER_PIN PC15
+
           #define LED0_PIN PA14
           #define LED1_PIN PA13
 
@@ -149,6 +203,10 @@ jobs:
           #define PINIO1_PIN PC13
 
           EOF
+
+          echo "===== Safety cleanup after patch ====="
+          sed -i '/#define USE_GYRO$/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/#define USE_ACC$/d' src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== PATCHED target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|UART1|UART6|MOTOR|SERVO|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
@@ -181,7 +239,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v2_firmware
+          name: RUNA_F405_WING_v3_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
