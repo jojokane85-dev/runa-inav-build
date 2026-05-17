@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v3
+name: Build RUNA F405 WING v4
 
 on:
   workflow_dispatch:
@@ -132,9 +132,11 @@ jobs:
           #define I2C1_SDA PB9
 
           #define USE_BARO_SPL06
+          #define BARO_I2C_BUS BUS_I2C1
           #define BARO_I2C_INSTANCE I2CDEV_1
 
           #define USE_MAG_HMC5883
+          #define MAG_I2C_BUS BUS_I2C1
           #define MAG_I2C_INSTANCE I2CDEV_1
 
           /*
@@ -209,7 +211,7 @@ jobs:
           sed -i '/#define USE_ACC$/d' src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== PATCHED target.h snippets ====="
-          grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|UART1|UART6|MOTOR|SERVO|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
+          grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|MOTOR|SERVO|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== RUNA target folder ====="
           find src/main/target/RUNA_F405_WING -maxdepth 1 -type f -print
@@ -239,7 +241,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v3_firmware
+          name: RUNA_F405_WING_v4_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
