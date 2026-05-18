@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v12 MATEK BASE LSM6DXX
+name: Build RUNA F405 WING v13 PATCH LSM6DS3
 
 on:
   workflow_dispatch:
@@ -16,16 +16,47 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v12 from MATEKF405SE ====="
+          echo "===== Create RUNA_F405_WING target v13 from MATEKF405SE ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
-          # v12: возвращаемся на MATEKF405SE, потому что он ближе к STM32F405 и твоим пинам
+          # База MATEKF405SE ближе к STM32F405 и твоим пинам
           cp -r src/main/target/MATEKF405SE/* src/main/target/RUNA_F405_WING/
 
           cat > src/main/target/RUNA_F405_WING/CMakeLists.txt <<'EOF'
           target_stm32f405xg(RUNA_F405_WING)
           EOF
+
+          echo "===== Patch LSM6DXX driver for LSM6DS3 ====="
+
+          echo "===== Original LSM6DXX probe area ====="
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+
+          # В INAV 7.1.2 LSM6DS3_CHIP_ID есть, но может не приниматься в switch/case.
+          # Добавляем case LSM6DS3_CHIP_ID рядом с LSM6DSL_CHIP_ID, если его там нет.
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path("src/main/drivers/accgyro/accgyro_lsm6dxx.c")
+          s = p.read_text()
+
+          if "case LSM6DS3_CHIP_ID:" not in s:
+              if "case LSM6DSL_CHIP_ID:" in s:
+                  s = s.replace(
+                      "case LSM6DSL_CHIP_ID:",
+                      "case LSM6DSL_CHIP_ID:\n            case LSM6DS3_CHIP_ID:"
+                  )
+              elif "case LSM6DSO_CHIP_ID:" in s:
+                  s = s.replace(
+                      "case LSM6DSO_CHIP_ID:",
+                      "case LSM6DSO_CHIP_ID:\n            case LSM6DS3_CHIP_ID:"
+                  )
+
+          p.write_text(s)
+          PY
+
+          echo "===== Patched LSM6DXX probe area ====="
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== ORIGINAL MATEK target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|DMA|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
@@ -88,11 +119,11 @@ jobs:
           sed -i '/CURRENT_METER_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/RSSI_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Добавляем блок RUNA v12
+          # Добавляем блок RUNA v13
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v12
+           * RUNA_F405_WING v13
            * Base: MATEKF405SE
            *
            * From working CADDXF405_WING:
@@ -101,6 +132,8 @@ jobs:
            * BARO: SPL06 on I2C1
            * MAG: HMC5883 on I2C1
            * OSD: MAX7456 on SPI2
+           *
+           * v13 also patches accgyro_lsm6dxx.c to accept LSM6DS3_CHIP_ID.
            */
 
           #undef TARGET_BOARD_IDENTIFIER
@@ -271,11 +304,14 @@ jobs:
           const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
           EOF
 
-          echo "===== FINAL RUNA v12 target.h snippets ====="
+          echo "===== FINAL RUNA v13 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC|DMA" src/main/target/RUNA_F405_WING/target.h || true
 
-          echo "===== FINAL RUNA v12 target.c ====="
+          echo "===== FINAL RUNA v13 target.c ====="
           cat src/main/target/RUNA_F405_WING/target.c
+
+          echo "===== FINAL PATCHED LSM6DXX cases ====="
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== RUNA target folder ====="
           find src/main/target/RUNA_F405_WING -maxdepth 1 -type f -print
@@ -305,7 +341,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v12_MATEK_BASE_LSM6DXX_firmware
+          name: RUNA_F405_WING_v13_PATCH_LSM6DS3_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
