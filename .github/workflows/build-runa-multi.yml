@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v9 LSM6DXX
+name: Build RUNA F405 WING v10 NEUTRON BASE
 
 on:
   workflow_dispatch:
@@ -16,74 +16,67 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v9 ====="
+          echo "===== Create RUNA_F405_WING target v10 from NEUTRONRCF435WING ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
-          # Основа MATEKF405SE: F405 wing, OSD, SD, UART, timer structure уже близкие
-          cp -r src/main/target/MATEKF405SE/* src/main/target/RUNA_F405_WING/
+          # v10: берём основу NEUTRONRCF435WING, потому что там родной LSM6DXX
+          cp -r src/main/target/NEUTRONRCF435WING/* src/main/target/RUNA_F405_WING/
 
           cat > src/main/target/RUNA_F405_WING/CMakeLists.txt <<'EOF'
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch target.h for RUNA v9 ====="
-
-          echo "===== ORIGINAL target.h snippets ====="
+          echo "===== ORIGINAL NEUTRON target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
+
+          echo "===== ORIGINAL NEUTRON target.c ====="
+          cat src/main/target/RUNA_F405_WING/target.c || true
 
           # Название платы
           sed -i '/TARGET_BOARD_IDENTIFIER/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USBD_PRODUCT_STRING/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем старые IMU от MATEKF405SE: MPU6000 / ICM42605
-          sed -i '/MPU6000/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/ICM42605/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/ICM42688/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/USE_IMU_MPU/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/USE_IMU_ICM/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/IMU_MPU/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/IMU_ICM/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/MPU6000_CS_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/MPU6000_SPI_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/ICM42605_CS_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/ICM42605_SPI_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
-
-          # Убираем неправильные/лишние GYRO/ACC/LSM строки
-          sed -i '/USE_GYRO/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/USE_ACC/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/GYRO_/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/ACC_/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/USE_IMU_LSM/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/IMU_LSM/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/LSM6/d' src/main/target/RUNA_F405_WING/target.h || true
-
-          # Убираем старые BARO/MAG, зададим свои
+          # Чистим BARO/MAG, чтобы задать как в рабочей CADDX: SPL06 + HMC5883 на I2C1
           sed -i '/USE_BARO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_MAG_/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/USE_MAG_ALL/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/BARO_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/MAG_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/USE_MAG_ALL/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем I2C2, потому что в рабочей CADDX MAG/BARO сидят на I2C1
-          sed -i '/USE_I2C_DEVICE_2/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/I2C2_SCL/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/I2C2_SDA/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/RANGEFINDER_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/PITOT_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/TEMPERATURE_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
+          # Чистим OSD/SD, чтобы задать как в рабочей CADDX/Matek-структуре
+          sed -i '/MAX7456/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/SDCARD/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Не удаляем MATEKF405SE_PINIO, иначе ломаются #ifdef/#endif
-          sed -i '/PINIO1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
-          sed -i '/PINIO2_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
+          # Чистим UART, чтобы оставить нужные UART1 и UART6
+          sed -i '/USE_UART/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/UART[0-9]_TX_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/UART[0-9]_RX_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Добавляем правильный блок RUNA v9
+          # Чистим лишний PINIO, зададим PC13
+          sed -i '/USE_PINIO/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/PINIO/d' src/main/target/RUNA_F405_WING/target.h || true
+
+          # Чистим ADC, зададим PC0/PC1
+          sed -i '/ADC_CHANNEL_1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/ADC_CHANNEL_2_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/VBAT_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/CURRENT_METER_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
+
+          # Важно: НЕ удаляем USE_IMU_LSM6DXX, LSM6DXX_CS_PIN, LSM6DXX_SPI_BUS.
+          # Только принудительно выставляем SPI1 и CS PA4.
+          sed -i '/LSM6DXX_CS_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/LSM6DXX_SPI_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/IMU_LSM6DXX_ALIGN/d' src/main/target/RUNA_F405_WING/target.h || true
+
+          # Добавляем блок RUNA v10
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v9
-           * Based on detected working CADDXF405_WING:
+           * RUNA_F405_WING v10
+           * Base: NEUTRONRCF435WING
            *
+           * From working CADDXF405_WING:
            * CPU: STM32F405
            * IMU: LSM6DXX on SPI1, CS PA4
            * BARO: SPL06 on I2C1
@@ -99,7 +92,6 @@ jobs:
 
           /*
            * SPI1 — LSM6DXX IMU
-           * Correct INAV 7.1.2 macro is USE_IMU_LSM6DXX.
            */
           #define USE_SPI
           #define USE_SPI_DEVICE_1
@@ -122,7 +114,7 @@ jobs:
           #define LSM6DXX_SPI_BUS BUS_SPI1
 
           /*
-           * I2C1 — SPL06 barometer and HMC5883 compass
+           * I2C1 — BARO/MAG
            */
           #define USE_I2C
           #define USE_I2C_DEVICE_1
@@ -156,11 +148,7 @@ jobs:
           #define SPI2_MOSI_PIN PC3
 
           #define USE_MAX7456
-
-          #undef MAX7456_CS_PIN
           #define MAX7456_CS_PIN PB12
-
-          #undef MAX7456_SPI_BUS
           #define MAX7456_SPI_BUS BUS_SPI2
 
           /*
@@ -179,26 +167,18 @@ jobs:
 
           #define USE_SDCARD
           #define USE_SDCARD_SPI
-
-          #undef SDCARD_SPI_BUS
           #define SDCARD_SPI_BUS BUS_SPI3
-
-          #undef SDCARD_CS_PIN
           #define SDCARD_CS_PIN PC14
 
           /*
-           * UARTs
+           * UARTs from original CADDXF405_WING
            */
           #define USE_UART1
-          #undef UART1_TX_PIN
           #define UART1_TX_PIN PA9
-          #undef UART1_RX_PIN
           #define UART1_RX_PIN PA10
 
           #define USE_UART6
-          #undef UART6_TX_PIN
           #define UART6_TX_PIN PC6
-          #undef UART6_RX_PIN
           #define UART6_RX_PIN PC7
 
           /*
@@ -227,16 +207,50 @@ jobs:
 
           #define USE_PINIO
           #define USE_PINIOBOX
-
-          #undef PINIO1_PIN
           #define PINIO1_PIN PC13
 
           EOF
 
-          echo "===== FINAL RUNA v9 target.h snippets ====="
+          echo "===== Replace target.c outputs with CADDX/RUNA pins ====="
+          cat > src/main/target/RUNA_F405_WING/target.c <<'EOF'
+          /*
+           * RUNA_F405_WING custom target.c
+           * Outputs copied from known working CADDXF405_WING resource:
+           * B07 MOTOR1
+           * B06 MOTOR2
+           * B00 SERVO3
+           * B01 SERVO4
+           * C08 SERVO5
+           * C09 SERVO6
+           */
+
+          #include <stdbool.h>
+          #include <platform.h>
+
+          #include "drivers/io.h"
+          #include "drivers/pwm_mapping.h"
+          #include "drivers/timer.h"
+
+          timerHardware_t timerHardware[] = {
+              DEF_TIM(TIM4,  CH2, PB7,  TIM_USE_OUTPUT_AUTO, 1, 0), // MOTOR1 / S1
+              DEF_TIM(TIM4,  CH1, PB6,  TIM_USE_OUTPUT_AUTO, 1, 0), // MOTOR2 / S2
+
+              DEF_TIM(TIM3,  CH3, PB0,  TIM_USE_OUTPUT_AUTO, 1, 0), // SERVO3 / S3
+              DEF_TIM(TIM3,  CH4, PB1,  TIM_USE_OUTPUT_AUTO, 1, 0), // SERVO4 / S4
+              DEF_TIM(TIM8,  CH3, PC8,  TIM_USE_OUTPUT_AUTO, 1, 0), // SERVO5 / S5
+              DEF_TIM(TIM8,  CH4, PC9,  TIM_USE_OUTPUT_AUTO, 1, 0), // SERVO6 / S6
+
+              DEF_TIM(TIM2,  CH1, PA15, TIM_USE_LED,         0, 0), // LED strip if used
+              DEF_TIM(TIM5,  CH3, PA2,  TIM_USE_ANY,         0, 0), // Softserial if used
+          };
+
+          const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
+          EOF
+
+          echo "===== FINAL RUNA v10 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
 
-          echo "===== RUNA target.c outputs ====="
+          echo "===== FINAL RUNA v10 target.c ====="
           cat src/main/target/RUNA_F405_WING/target.c
 
           echo "===== RUNA target folder ====="
@@ -267,7 +281,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v9_LSM6DXX_firmware
+          name: RUNA_F405_WING_v10_NEUTRON_BASE_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
