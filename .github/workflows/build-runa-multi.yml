@@ -2,6 +2,7 @@ name: Build RUNA F405 WING v17 LSM6 0x70 GYRO SCALE FIX
 
 on:
   workflow_dispatch:
+  push:
 
 jobs:
   build:
@@ -74,22 +75,25 @@ jobs:
               )
 
           # Patch gyro read function: if chip id 0x70, divide raw gyro by 32.
-          # This is a diagnostic scale fix. If too slow/fast, change 32 to 16/8/4 later.
+          # This is diagnostic. If too slow/fast, later change 32 to 16/8/4/64.
           if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
-              old = """gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
-    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
-    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+              old = (
+                  "gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
+                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
+                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
+              )
 
-              new = """// RUNA_GYRO_SCALE_FIX_0x70
-    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {
-        gyro->gyroADCRaw[X] /= 32;
-        gyro->gyroADCRaw[Y] /= 32;
-        gyro->gyroADCRaw[Z] /= 32;
-    }
-
-    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
-    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
-    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+              new = (
+                  "// RUNA_GYRO_SCALE_FIX_0x70\n"
+                  "    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {\n"
+                  "        gyro->gyroADCRaw[X] /= 32;\n"
+                  "        gyro->gyroADCRaw[Y] /= 32;\n"
+                  "        gyro->gyroADCRaw[Z] /= 32;\n"
+                  "    }\n\n"
+                  "    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
+                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
+                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
+              )
 
               if old in s:
                   s = s.replace(old, new)
@@ -100,7 +104,7 @@ jobs:
           PY
 
           echo "===== PATCHED LSM6DXX snippets ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== ORIGINAL MATEK target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|DMA|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
