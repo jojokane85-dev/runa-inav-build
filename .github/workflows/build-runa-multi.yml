@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v14 PATCH MORE LSM6 IDs
+name: Build RUNA F405 WING v15 PATCH SAFE LSM6 IDs
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v14 from MATEKF405SE ====="
+          echo "===== Create RUNA_F405_WING target v15 from MATEKF405SE ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
@@ -27,10 +27,10 @@ jobs:
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch LSM6DXX driver for more LSM6 IDs ====="
+          echo "===== Patch LSM6DXX driver for safe extra LSM6 IDs ====="
 
           echo "===== Original LSM6DXX probe area ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSOX|LSM6DSV|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           python3 <<'PY'
           from pathlib import Path
@@ -38,40 +38,33 @@ jobs:
           p = Path("src/main/drivers/accgyro/accgyro_lsm6dxx.c")
           s = p.read_text()
 
-          # Add extra possible chip IDs after the known chip IDs.
+          # ВНИМАНИЕ:
+          # Не добавляем LSM6DSOX_CHIP_ID = 0x6C, потому что 0x6C уже есть как LSM6DSO_CHIP_ID.
+          # Не добавляем LSM6DSV16X_CHIP_ID = 0x70 отдельно, потому что 0x70 уже будет как LSM6DSV_CHIP_ID.
+          # Иначе будет ошибка duplicate case value.
+
           extra_defs = """
           #ifndef LSM6DSR_CHIP_ID
           #define LSM6DSR_CHIP_ID 0x6B
           #endif
 
-          #ifndef LSM6DSOX_CHIP_ID
-          #define LSM6DSOX_CHIP_ID 0x6C
-          #endif
-
           #ifndef LSM6DSV_CHIP_ID
           #define LSM6DSV_CHIP_ID 0x70
           #endif
-
-          #ifndef LSM6DSV16X_CHIP_ID
-          #define LSM6DSV16X_CHIP_ID 0x70
-          #endif
           """
 
-          if "LSM6DSV16X_CHIP_ID" not in s:
+          if "LSM6DSR_CHIP_ID" not in s:
               marker = "#define LSM6DS3_CHIP_ID 0x69"
               if marker in s:
                   s = s.replace(marker, marker + extra_defs)
 
-          # Ensure all candidate IDs are accepted in detect switch.
           cases_to_add = [
               "case LSM6DS3_CHIP_ID:",
               "case LSM6DSR_CHIP_ID:",
-              "case LSM6DSOX_CHIP_ID:",
               "case LSM6DSV_CHIP_ID:",
-              "case LSM6DSV16X_CHIP_ID:",
           ]
 
-          # Insert after case LSM6DSL_CHIP_ID if not already present.
+          # Добавляем недостающие case рядом с LSM6DSL_CHIP_ID
           if "case LSM6DSR_CHIP_ID:" not in s:
               if "case LSM6DSL_CHIP_ID:" in s:
                   replacement = "case LSM6DSL_CHIP_ID:\n            " + "\n            ".join(cases_to_add)
@@ -84,7 +77,7 @@ jobs:
           PY
 
           echo "===== Patched LSM6DXX probe area ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSOX|LSM6DSV|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|default|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== ORIGINAL MATEK target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|DMA|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
@@ -147,11 +140,11 @@ jobs:
           sed -i '/CURRENT_METER_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/RSSI_ADC_CHANNEL/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Добавляем блок RUNA v14
+          # Добавляем блок RUNA v15
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v14
+           * RUNA_F405_WING v15
            * Base: MATEKF405SE
            *
            * From working CADDXF405_WING:
@@ -161,7 +154,7 @@ jobs:
            * MAG: HMC5883 on I2C1
            * OSD: MAX7456 on SPI2
            *
-           * v14 patches accgyro_lsm6dxx.c to accept more LSM6 WHO_AM_I IDs.
+           * v15 patches accgyro_lsm6dxx.c with safe extra LSM6 WHO_AM_I IDs.
            */
 
           #undef TARGET_BOARD_IDENTIFIER
@@ -332,14 +325,14 @@ jobs:
           const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
           EOF
 
-          echo "===== FINAL RUNA v14 target.h snippets ====="
+          echo "===== FINAL RUNA v15 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC|DMA" src/main/target/RUNA_F405_WING/target.h || true
 
-          echo "===== FINAL RUNA v14 target.c ====="
+          echo "===== FINAL RUNA v15 target.c ====="
           cat src/main/target/RUNA_F405_WING/target.c
 
           echo "===== FINAL PATCHED LSM6DXX cases ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSOX|LSM6DSV|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== RUNA target folder ====="
           find src/main/target/RUNA_F405_WING -maxdepth 1 -type f -print
@@ -369,7 +362,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v14_PATCH_MORE_LSM6_IDS_firmware
+          name: RUNA_F405_WING_v15_PATCH_SAFE_LSM6_IDS_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
