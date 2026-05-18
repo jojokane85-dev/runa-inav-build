@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v17 LSM6 0x70 GYRO SCALE FIX
+name: Build RUNA F405 WING v17 FIXED LSM6 0x70 GYRO SCALE
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v17 from MATEKF405SE ====="
+          echo "===== Create RUNA_F405_WING target v17 FIXED from MATEKF405SE ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
@@ -36,11 +36,12 @@ jobs:
           s = p.read_text()
 
           # Add 0x70 ID. This is likely LSM6DSV / LSM6DSV16X.
-          extra_defs = """
-          #ifndef LSM6DSV_CHIP_ID
-          #define LSM6DSV_CHIP_ID 0x70
-          #endif
-          """
+          extra_defs = (
+              "\n"
+              "#ifndef LSM6DSV_CHIP_ID\n"
+              "#define LSM6DSV_CHIP_ID 0x70\n"
+              "#endif\n"
+          )
 
           if "LSM6DSV_CHIP_ID" not in s:
               marker = "#define LSM6DS3_CHIP_ID 0x69"
@@ -75,21 +76,21 @@ jobs:
               )
 
           # Patch gyro read function: if chip id 0x70, divide raw gyro by 32.
-                    if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
-              old = """gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
-    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
-    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+          # This is diagnostic. If too slow/fast, later change 32 to 16/8/4/64.
+          if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
+              old = (
+                  "gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
+                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
+                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
+              )
 
-              new = """// RUNA_GYRO_SCALE_FIX_0x70
-    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {
-        gyro->gyroADCRaw[X] /= 32;
-        gyro->gyroADCRaw[Y] /= 32;
-        gyro->gyroADCRaw[Z] /= 32;
-    }
-
-    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
-    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
-    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+              new = (
+                  "// RUNA_GYRO_SCALE_FIX_0x70\n"
+                  "    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {\n"
+                  "        gyro->gyroADCRaw[X] /= 32;\n"
+                  "        gyro->gyroADCRaw[Y] /= 32;\n"
+                  "        gyro->gyroADCRaw[Z] /= 32;\n"
+                  "    }\n\n"
                   "    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
                   "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
                   "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
@@ -98,7 +99,7 @@ jobs:
               if old in s:
                   s = s.replace(old, new)
               else:
-                  print("WARNING: exact gyro ADC assignment block not found; showing nearby gyro read code may be needed.")
+                  print("WARNING: exact gyro ADC assignment block not found.")
 
           p.write_text(s)
           PY
@@ -167,7 +168,7 @@ jobs:
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v17
+           * RUNA_F405_WING v17 FIXED
            * Base: MATEKF405SE
            * IMU: LSM6DXX / 0x70 with gyro scale diagnostic fix.
            */
@@ -340,7 +341,7 @@ jobs:
           const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
           EOF
 
-          echo "===== FINAL RUNA v17 target.h snippets ====="
+          echo "===== FINAL RUNA v17 FIXED target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC|DMA" src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== FINAL PATCHED LSM6DXX snippets ====="
@@ -371,7 +372,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v17_LSM6_0x70_GYRO_SCALE_FIX_firmware
+          name: RUNA_F405_WING_v17_FIXED_LSM6_0x70_GYRO_SCALE_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
