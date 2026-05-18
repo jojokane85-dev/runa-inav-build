@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v17 FIXED LSM6 0x70 GYRO SCALE
+name: Build RUNA F405 WING v18 LSM6 0x70 SCALE FIX
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v17 FIXED from MATEKF405SE ====="
+          echo "===== Create RUNA_F405_WING target v18 from MATEKF405SE ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
@@ -27,7 +27,7 @@ jobs:
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch LSM6DXX driver: 0x70 + gyro scale divide ====="
+          echo "===== Patch LSM6DXX driver: accept 0x70 and fix gyro scale ====="
 
           python3 <<'PY'
           from pathlib import Path
@@ -35,7 +35,7 @@ jobs:
           p = Path("src/main/drivers/accgyro/accgyro_lsm6dxx.c")
           s = p.read_text()
 
-          # Add 0x70 ID. This is likely LSM6DSV / LSM6DSV16X.
+          # Add 0x70 ID. This is likely LSM6DSV / LSM6DSV16X family.
           extra_defs = (
               "\n"
               "#ifndef LSM6DSV_CHIP_ID\n"
@@ -48,7 +48,7 @@ jobs:
               if marker in s:
                   s = s.replace(marker, marker + extra_defs)
 
-          # Accept 0x70 in detection switch.
+          # Accept 0x70 in detect switch.
           if "case LSM6DSV_CHIP_ID:" not in s:
               if "case LSM6DSL_CHIP_ID:" in s:
                   s = s.replace(
@@ -61,51 +61,34 @@ jobs:
                       "case LSM6DSO_CHIP_ID:\n            case LSM6DSV_CHIP_ID:"
                   )
 
-          # Add global saved chip id.
-          if "static uint8_t runaLsm6dxxChipId" not in s:
-              s = s.replace(
-                  "#define LSM6DS3_CHIP_ID 0x69",
-                  "#define LSM6DS3_CHIP_ID 0x69\n\nstatic uint8_t runaLsm6dxxChipId = 0;"
-              )
+          # Fix gyro scale for 0x70.
+          # Standard LSM6DXX driver uses 16.4 LSB/dps for 2000 dps.
+          # Our 0x70 chip was visually too fast, so start with 32x correction.
+          old_scale_1 = "gyro->scale = 1.0f / 16.4f; // 2000 dps"
+          old_scale_2 = "gyro->scale = 1.0f / 16.4f;"
 
-          # Save WHO_AM_I chip id after reading it.
-          if "runaLsm6dxxChipId = tmp;" not in s:
-              s = s.replace(
-                  "busRead(dev, LSM6DXX_REG_WHO_AM_I, &tmp);",
-                  "busRead(dev, LSM6DXX_REG_WHO_AM_I, &tmp);\n        runaLsm6dxxChipId = tmp;"
-              )
+          new_scale = (
+              "// RUNA_GYRO_SCALE_FIX_0x70\n"
+              "    if (lsm6dID == LSM6DSV_CHIP_ID) {\n"
+              "        gyro->scale = 1.0f / (16.4f * 32.0f); // RUNA test scale for 0x70\n"
+              "    } else {\n"
+              "        gyro->scale = 1.0f / 16.4f; // 2000 dps\n"
+              "    }"
+          )
 
-          # Patch gyro read function: if chip id 0x70, divide raw gyro by 32.
-          # This is diagnostic. If too slow/fast, later change 32 to 16/8/4/64.
           if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
-              old = (
-                  "gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
-                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
-                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
-              )
-
-              new = (
-                  "// RUNA_GYRO_SCALE_FIX_0x70\n"
-                  "    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {\n"
-                  "        gyro->gyroADCRaw[X] /= 32;\n"
-                  "        gyro->gyroADCRaw[Y] /= 32;\n"
-                  "        gyro->gyroADCRaw[Z] /= 32;\n"
-                  "    }\n\n"
-                  "    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
-                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
-                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
-              )
-
-              if old in s:
-                  s = s.replace(old, new)
+              if old_scale_1 in s:
+                  s = s.replace(old_scale_1, new_scale)
+              elif old_scale_2 in s:
+                  s = s.replace(old_scale_2, new_scale)
               else:
-                  print("WARNING: exact gyro ADC assignment block not found.")
+                  print("WARNING: gyro scale line not found")
 
           p.write_text(s)
           PY
 
           echo "===== PATCHED LSM6DXX snippets ====="
-          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|RUNA_GYRO_SCALE_FIX|gyro->scale|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== ORIGINAL MATEK target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|DMA|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
@@ -168,9 +151,9 @@ jobs:
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v17 FIXED
+           * RUNA_F405_WING v18
            * Base: MATEKF405SE
-           * IMU: LSM6DXX / 0x70 with gyro scale diagnostic fix.
+           * IMU: LSM6DXX / 0x70 with gyro scale fix.
            */
 
           #undef TARGET_BOARD_IDENTIFIER
@@ -341,11 +324,11 @@ jobs:
           const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
           EOF
 
-          echo "===== FINAL RUNA v17 FIXED target.h snippets ====="
+          echo "===== FINAL RUNA v18 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC|DMA" src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== FINAL PATCHED LSM6DXX snippets ====="
-          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|RUNA_GYRO_SCALE_FIX|gyro->scale|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
       - name: Install dependencies
         run: |
@@ -372,7 +355,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v17_FIXED_LSM6_0x70_GYRO_SCALE_firmware
+          name: RUNA_F405_WING_v18_LSM6_0x70_SCALE_FIX_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
