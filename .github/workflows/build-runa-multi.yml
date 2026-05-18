@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v8 LSM6DSO
+name: Build RUNA F405 WING v9 LSM6DXX
 
 on:
   workflow_dispatch:
@@ -16,33 +16,30 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v8 ====="
+          echo "===== Create RUNA_F405_WING target v9 ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
-          # Основа: MATEKF405SE, потому что это F405 wing target с близкой структурой
+          # Основа MATEKF405SE: F405 wing, OSD, SD, UART, timer structure уже близкие
           cp -r src/main/target/MATEKF405SE/* src/main/target/RUNA_F405_WING/
 
           cat > src/main/target/RUNA_F405_WING/CMakeLists.txt <<'EOF'
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch target.h for RUNA v8 ====="
+          echo "===== Patch target.h for RUNA v9 ====="
 
           echo "===== ORIGINAL target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
-
-          echo "===== Search LSM drivers in INAV source ====="
-          grep -R "USE_IMU_LSM" -n src/main | head -100 || true
-          grep -R "LSM6" -n src/main/target src/main/drivers | head -200 || true
 
           # Название платы
           sed -i '/TARGET_BOARD_IDENTIFIER/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USBD_PRODUCT_STRING/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Полностью убираем старые IMU от MATEKF405SE
+          # Убираем старые IMU от MATEKF405SE: MPU6000 / ICM42605
           sed -i '/MPU6000/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ICM42605/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/ICM42688/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_IMU_MPU/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_IMU_ICM/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/IMU_MPU/d' src/main/target/RUNA_F405_WING/target.h || true
@@ -52,13 +49,13 @@ jobs:
           sed -i '/ICM42605_CS_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ICM42605_SPI_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем неправильные GYRO/ACC макросы из прошлых попыток
+          # Убираем неправильные/лишние GYRO/ACC/LSM строки
           sed -i '/USE_GYRO/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_ACC/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/GYRO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ACC_/d' src/main/target/RUNA_F405_WING/target.h || true
-
-          # Убираем старые LSM строки из прошлых попыток
+          sed -i '/USE_IMU_LSM/d' src/main/target/RUNA_F405_WING/target.h || true
+          sed -i '/IMU_LSM/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/LSM6/d' src/main/target/RUNA_F405_WING/target.h || true
 
           # Убираем старые BARO/MAG, зададим свои
@@ -76,20 +73,19 @@ jobs:
           sed -i '/PITOT_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/TEMPERATURE_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # НЕ удаляем MATEKF405SE_PINIO, чтобы не сломать #ifdef/#endif
-          # Убираем только старые PINIO-пины PC6/PC7.
+          # Не удаляем MATEKF405SE_PINIO, иначе ломаются #ifdef/#endif
           sed -i '/PINIO1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/PINIO2_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Добавляем правильный блок RUNA v8
+          # Добавляем правильный блок RUNA v9
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v8
+           * RUNA_F405_WING v9
            * Based on detected working CADDXF405_WING:
            *
            * CPU: STM32F405
-           * IMU: try concrete LSM6DSO on SPI1, CS PA4
+           * IMU: LSM6DXX on SPI1, CS PA4
            * BARO: SPL06 on I2C1
            * MAG: HMC5883 on I2C1
            * OSD: MAX7456 on SPI2
@@ -102,8 +98,8 @@ jobs:
           #define USBD_PRODUCT_STRING "RUNA_F405_WING"
 
           /*
-           * SPI1 — IMU
-           * v8: try LSM6DSO instead of generic LSM6DXX.
+           * SPI1 — LSM6DXX IMU
+           * Correct INAV 7.1.2 macro is USE_IMU_LSM6DXX.
            */
           #define USE_SPI
           #define USE_SPI_DEVICE_1
@@ -120,10 +116,10 @@ jobs:
           #undef SPI1_MOSI_PIN
           #define SPI1_MOSI_PIN PA7
 
-          #define USE_IMU_LSM6DSO
-          #define LSM6DSO_CS_PIN PA4
-          #define LSM6DSO_SPI_BUS BUS_SPI1
-          #define IMU_LSM6DSO_ALIGN CW0_DEG
+          #define USE_IMU_LSM6DXX
+          #define IMU_LSM6DXX_ALIGN CW0_DEG
+          #define LSM6DXX_CS_PIN SPI1_NSS_PIN
+          #define LSM6DXX_SPI_BUS BUS_SPI1
 
           /*
            * I2C1 — SPL06 barometer and HMC5883 compass
@@ -209,6 +205,7 @@ jobs:
            * ADC
            */
           #define USE_ADC
+
           #undef ADC_CHANNEL_1_PIN
           #define ADC_CHANNEL_1_PIN PC0
 
@@ -236,7 +233,7 @@ jobs:
 
           EOF
 
-          echo "===== FINAL RUNA v8 target.h snippets ====="
+          echo "===== FINAL RUNA v9 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== RUNA target.c outputs ====="
@@ -270,7 +267,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v8_LSM6DSO_firmware
+          name: RUNA_F405_WING_v9_LSM6DXX_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
