@@ -75,21 +75,21 @@ jobs:
               )
 
           # Patch gyro read function: if chip id 0x70, divide raw gyro by 32.
-          # This is diagnostic. If too slow/fast, later change 32 to 16/8/4/64.
-          if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
-              old = (
-                  "gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
-                  "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
-                  "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
-              )
+                    if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
+              old = """gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
+    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
+    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
 
-              new = (
-                  "// RUNA_GYRO_SCALE_FIX_0x70\n"
-                  "    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {\n"
-                  "        gyro->gyroADCRaw[X] /= 32;\n"
-                  "        gyro->gyroADCRaw[Y] /= 32;\n"
-                  "        gyro->gyroADCRaw[Z] /= 32;\n"
-                  "    }\n\n"
+              new = """// RUNA_GYRO_SCALE_FIX_0x70
+    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {
+        gyro->gyroADCRaw[X] /= 32;
+        gyro->gyroADCRaw[Y] /= 32;
+        gyro->gyroADCRaw[Z] /= 32;
+    }
+
+    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
+    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
+    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
                   "    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];\n"
                   "    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];\n"
                   "    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"
