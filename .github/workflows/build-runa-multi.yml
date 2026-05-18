@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v16 ONLY LSM6DSR 0x6B
+name: Build RUNA F405 WING v17 LSM6 0x70 GYRO SCALE FIX
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v16 from MATEKF405SE ====="
+          echo "===== Create RUNA_F405_WING target v17 from MATEKF405SE ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
@@ -26,10 +26,7 @@ jobs:
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch LSM6DXX driver: ONLY extra ID 0x6B ====="
-
-          echo "===== Original LSM6DXX probe area ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          echo "===== Patch LSM6DXX driver: 0x70 + gyro scale divide ====="
 
           python3 <<'PY'
           from pathlib import Path
@@ -37,49 +34,82 @@ jobs:
           p = Path("src/main/drivers/accgyro/accgyro_lsm6dxx.c")
           s = p.read_text()
 
-          # v16:
-          # Добавляем только 0x6B.
-          # НЕ добавляем 0x70, потому что v15 с 0x70 подняла IMU, но gyro scale/движение стало неправильным.
+          # Add 0x70 ID. This is likely LSM6DSV / LSM6DSV16X.
           extra_defs = """
-          #ifndef LSM6DSR_CHIP_ID
-          #define LSM6DSR_CHIP_ID 0x6B
+          #ifndef LSM6DSV_CHIP_ID
+          #define LSM6DSV_CHIP_ID 0x70
           #endif
           """
 
-          if "LSM6DSR_CHIP_ID" not in s:
+          if "LSM6DSV_CHIP_ID" not in s:
               marker = "#define LSM6DS3_CHIP_ID 0x69"
               if marker in s:
                   s = s.replace(marker, marker + extra_defs)
 
-          # Оставляем штатные 0x6C / 0x6A, добавляем 0x69 и 0x6B.
-          # НЕ добавляем 0x70.
-          cases_to_add = [
-              "case LSM6DS3_CHIP_ID:",
-              "case LSM6DSR_CHIP_ID:",
-          ]
-
-          if "case LSM6DSR_CHIP_ID:" not in s:
+          # Accept 0x70 in detection switch.
+          if "case LSM6DSV_CHIP_ID:" not in s:
               if "case LSM6DSL_CHIP_ID:" in s:
-                  replacement = "case LSM6DSL_CHIP_ID:\n            " + "\n            ".join(cases_to_add)
-                  s = s.replace("case LSM6DSL_CHIP_ID:", replacement)
+                  s = s.replace(
+                      "case LSM6DSL_CHIP_ID:",
+                      "case LSM6DSL_CHIP_ID:\n            case LSM6DSV_CHIP_ID:"
+                  )
               elif "case LSM6DSO_CHIP_ID:" in s:
-                  replacement = "case LSM6DSO_CHIP_ID:\n            " + "\n            ".join(cases_to_add)
-                  s = s.replace("case LSM6DSO_CHIP_ID:", replacement)
+                  s = s.replace(
+                      "case LSM6DSO_CHIP_ID:",
+                      "case LSM6DSO_CHIP_ID:\n            case LSM6DSV_CHIP_ID:"
+                  )
+
+          # Add global saved chip id.
+          if "static uint8_t runaLsm6dxxChipId" not in s:
+              s = s.replace(
+                  "#define LSM6DS3_CHIP_ID 0x69",
+                  "#define LSM6DS3_CHIP_ID 0x69\n\nstatic uint8_t runaLsm6dxxChipId = 0;"
+              )
+
+          # Save WHO_AM_I chip id after reading it.
+          if "runaLsm6dxxChipId = tmp;" not in s:
+              s = s.replace(
+                  "busRead(dev, LSM6DXX_REG_WHO_AM_I, &tmp);",
+                  "busRead(dev, LSM6DXX_REG_WHO_AM_I, &tmp);\n        runaLsm6dxxChipId = tmp;"
+              )
+
+          # Patch gyro read function: if chip id 0x70, divide raw gyro by 32.
+          # This is a diagnostic scale fix. If too slow/fast, change 32 to 16/8/4 later.
+          if "RUNA_GYRO_SCALE_FIX_0x70" not in s:
+              old = """gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
+    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
+    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+
+              new = """// RUNA_GYRO_SCALE_FIX_0x70
+    if (runaLsm6dxxChipId == LSM6DSV_CHIP_ID) {
+        gyro->gyroADCRaw[X] /= 32;
+        gyro->gyroADCRaw[Y] /= 32;
+        gyro->gyroADCRaw[Z] /= 32;
+    }
+
+    gyro->gyroADCf[X] = gyro->gyroADCRaw[X];
+    gyro->gyroADCf[Y] = gyro->gyroADCRaw[Y];
+    gyro->gyroADCf[Z] = gyro->gyroADCRaw[Z];"""
+
+              if old in s:
+                  s = s.replace(old, new)
+              else:
+                  print("WARNING: exact gyro ADC assignment block not found; showing nearby gyro read code may be needed.")
 
           p.write_text(s)
           PY
 
-          echo "===== Patched LSM6DXX probe area ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          echo "===== PATCHED LSM6DXX snippets ====="
+          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
           echo "===== ORIGINAL MATEK target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|DMA|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
 
-          # Название платы
+          # Board name
           sed -i '/TARGET_BOARD_IDENTIFIER/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USBD_PRODUCT_STRING/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем старые IMU от MATEKF405SE
+          # Remove old Matek IMU
           sed -i '/MPU6000/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ICM42605/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ICM42688/d' src/main/target/RUNA_F405_WING/target.h || true
@@ -92,7 +122,7 @@ jobs:
           sed -i '/ICM42605_CS_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ICM42605_SPI_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем неправильные GYRO/ACC/LSM строки
+          # Remove wrong old gyro/acc/lsm target defines
           sed -i '/USE_GYRO/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_ACC/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/GYRO_/d' src/main/target/RUNA_F405_WING/target.h || true
@@ -101,14 +131,14 @@ jobs:
           sed -i '/IMU_LSM/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/LSM6/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # BARO/MAG: только SPL06 + HMC5883 на I2C1
+          # BARO/MAG only SPL06 + HMC5883 on I2C1
           sed -i '/USE_BARO_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_MAG_/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/USE_MAG_ALL/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/BARO_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/MAG_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем I2C2
+          # Remove I2C2 extras
           sed -i '/USE_I2C_DEVICE_2/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/I2C2_SCL/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/I2C2_SDA/d' src/main/target/RUNA_F405_WING/target.h || true
@@ -116,11 +146,11 @@ jobs:
           sed -i '/PITOT_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/TEMPERATURE_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем старые PINIO PC6/PC7
+          # PINIO
           sed -i '/PINIO1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/PINIO2_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # ADC под STM32F405
+          # ADC
           sed -i '/ADC_INSTANCE/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ADC1_DMA_STREAM/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/ADC_CHANNEL_1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
@@ -133,11 +163,9 @@ jobs:
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v16
+           * RUNA_F405_WING v17
            * Base: MATEKF405SE
-           *
-           * v16: only extra LSM6 ID 0x6B.
-           * No 0x70.
+           * IMU: LSM6DXX / 0x70 with gyro scale diagnostic fix.
            */
 
           #undef TARGET_BOARD_IDENTIFIER
@@ -308,11 +336,11 @@ jobs:
           const int timerHardwareCount = sizeof(timerHardware) / sizeof(timerHardware[0]);
           EOF
 
-          echo "===== FINAL RUNA v16 target.h snippets ====="
+          echo "===== FINAL RUNA v17 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC|DMA" src/main/target/RUNA_F405_WING/target.h || true
 
-          echo "===== FINAL PATCHED LSM6DXX cases ====="
-          grep -nE "LSM6DSO_CHIP_ID|LSM6DSL_CHIP_ID|LSM6DS3_CHIP_ID|LSM6DSR|LSM6DSV|case LSM6D|WHO_AM_I|return false|return true" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
+          echo "===== FINAL PATCHED LSM6DXX snippets ====="
+          grep -nE "LSM6DSV_CHIP_ID|case LSM6D|runaLsm6dxxChipId|RUNA_GYRO_SCALE_FIX|gyroADCRaw|gyroADCf|WHO_AM_I" src/main/drivers/accgyro/accgyro_lsm6dxx.c || true
 
       - name: Install dependencies
         run: |
@@ -339,7 +367,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v16_ONLY_LSM6DSR_0x6B_firmware
+          name: RUNA_F405_WING_v17_LSM6_0x70_GYRO_SCALE_FIX_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
