@@ -1,4 +1,4 @@
-name: Build RUNA F405 WING v6
+name: Build RUNA F405 WING v7
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         run: |
           cd inav
 
-          echo "===== Create RUNA_F405_WING target v6 ====="
+          echo "===== Create RUNA_F405_WING target v7 ====="
           rm -rf src/main/target/RUNA_F405_WING
           mkdir -p src/main/target/RUNA_F405_WING
 
@@ -27,7 +27,7 @@ jobs:
           target_stm32f405xg(RUNA_F405_WING)
           EOF
 
-          echo "===== Patch target.h for RUNA v6 ====="
+          echo "===== Patch target.h for RUNA v7 ====="
 
           echo "===== ORIGINAL target.h snippets ====="
           grep -nE "TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|MPU|ICM|LSM|IMU|GYRO|ACC|BARO|MAG|MAX7456|SPI|I2C|UART|PINIO|BEEPER|SDCARD|ADC|MOTOR|SERVO" src/main/target/RUNA_F405_WING/target.h || true
@@ -69,8 +69,11 @@ jobs:
           sed -i '/PITOT_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/TEMPERATURE_I2C_BUS/d' src/main/target/RUNA_F405_WING/target.h || true
 
-          # Убираем старый PINIO на PC6/PC7, чтобы вернуть UART6
-          sed -i '/MATEKF405SE_PINIO/d' src/main/target/RUNA_F405_WING/target.h || true
+          # ВАЖНО:
+          # НЕ удаляем строки с MATEKF405SE_PINIO.
+          # Если их удалить, ломаются #ifdef / #endif и будет ошибка:
+          # error: #endif without #if
+          # Убираем только старые PINIO-пины PC6/PC7.
           sed -i '/PINIO1_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
           sed -i '/PINIO2_PIN/d' src/main/target/RUNA_F405_WING/target.h || true
 
@@ -78,7 +81,7 @@ jobs:
           cat >> src/main/target/RUNA_F405_WING/target.h <<'EOF'
 
           /*
-           * RUNA_F405_WING v6
+           * RUNA_F405_WING v7
            * Based on detected working CADDXF405_WING:
            *
            * CPU: STM32F405
@@ -203,10 +206,13 @@ jobs:
           #define USE_ADC
           #undef ADC_CHANNEL_1_PIN
           #define ADC_CHANNEL_1_PIN PC0
+
           #undef ADC_CHANNEL_2_PIN
           #define ADC_CHANNEL_2_PIN PC1
+
           #undef VBAT_ADC_CHANNEL
           #define VBAT_ADC_CHANNEL ADC_CHN_1
+
           #undef CURRENT_METER_ADC_CHANNEL
           #define CURRENT_METER_ADC_CHANNEL ADC_CHN_2
 
@@ -219,12 +225,13 @@ jobs:
 
           #define USE_PINIO
           #define USE_PINIOBOX
+
           #undef PINIO1_PIN
           #define PINIO1_PIN PC13
 
           EOF
 
-          echo "===== FINAL RUNA v6 target.h snippets ====="
+          echo "===== FINAL RUNA v7 target.h snippets ====="
           grep -nE "RUNA|TARGET_BOARD_IDENTIFIER|USBD_PRODUCT_STRING|LSM6|IMU|MPU|ICM|GYRO|ACC|BARO|SPL06|MAG|HMC5883|MAX7456|SPI1|SPI2|SPI3|I2C1|BUS_I2C1|UART1|UART6|PINIO|BEEPER|SDCARD|ADC" src/main/target/RUNA_F405_WING/target.h || true
 
           echo "===== RUNA target.c outputs ====="
@@ -258,7 +265,7 @@ jobs:
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: RUNA_F405_WING_v6_firmware
+          name: RUNA_F405_WING_v7_firmware
           path: |
             inav/build/**/*.hex
             inav/build/**/*.bin
